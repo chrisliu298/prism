@@ -41,6 +41,8 @@ Every agent must receive the full question, analyze the full scope, and produce 
 
 Parallax is the agent dispatched via `/relay` to a **different model** than yourself. Dispatch Parallax by invoking `/relay` directly (not by spawning a subagent that calls relay) — the relay call body is the agent prompt from the template. Its value is model diversity — different training, different blind spots, different reasoning patterns. Assign it a lens like any other agent, preferably one that maximizes diversity (e.g., if subagents have Correctness and Simplicity lenses, give Parallax a Contrarian or Disconfirming Lens).
 
+**Before composing the Parallax prompt body, read the peer's prompt guide** in the relay skill's `references/` directory (e.g., `prompting-codex.md` when relaying to Codex). The guide contains model-specific patterns that materially affect output quality. This applies every time you write a relay call body, not just the first time.
+
 If `/relay` is unavailable, replace Parallax with a subagent using a **structurally adversarial lens** (Contrarian, Falsification, Disconfirming). A same-model agent with an adversarial posture partially compensates for missing model diversity. The user can also opt out of Parallax explicitly.
 
 ### Subagents
