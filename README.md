@@ -38,25 +38,36 @@ Asking the same question twice gets you the same biases twice. Prism assigns eac
 ## How It Works
 
 ```
-┌─────────────────────────────────────────────────┐
-│  User question + shared context                 │
-├─────────┬──────────┬──────────┬─────────────────┤
-│  Self   │ Agent 1  │ Agent 2  │   Parallax      │
-│ (you)   │ Lens: A  │ Lens: B  │   Lens: C       │
-│         │          │          │   (cross-model  │
-│         │          │          │    via /relay)  │
-├─────────┴──────────┴──────────┴─────────────────┤
-│  Synthesis: consensus, contested, unique, gaps  │
-└─────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│  User question + shared context                      │
+├───────────┬──────────┬──────────┬────────────────────┤
+│   Self    │ Agent 1  │ Agent 2  │    Parallax        │
+│ Integra-  │ Lens: A  │ Lens: B  │    Lens: C         │
+│   tor     │          │          │   (cross-model     │
+│           │          │          │    via /relay)      │
+├───────────┴──────────┴──────────┴────────────────────┤
+│  Synthesis: consensus, contested, unique, gaps       │
+└──────────────────────────────────────────────────────┘
 ```
 
-1. **Freeze context** — build one shared evidence packet with all information needed
-2. **Compose prompts** — same question + same context + different lens per agent
-3. **Launch all concurrently** — subagents + Parallax in parallel, then self-review
-4. **Wait for ALL** — hard completion gate, no partial synthesis
-5. **Synthesize** — consensus, contested points, unique insights, blind spots, recommendation
+Self is the primary agent (the one you're talking to). It uses the **Integrator Lens** — weighing holistic coherence, feasibility, and alignment with your goals — and forms its own position while dispatched agents run in parallel.
 
-**Default: 4 perspectives** — self + 2 subagents + 1 Parallax (cross-model via [Relay](https://github.com/chrisliu298/relay)).
+1. **Freeze context** — build one shared evidence packet with all information needed
+2. **Compose prompts** — word-for-word identical question and context across all agents, only the lens line differs
+3. **Verify** — run pre-launch checks (redundancy, lens quality, count)
+4. **Launch all concurrently** — subagents + Parallax in parallel, then self-review
+5. **Wait for ALL** — hard completion gate, no partial synthesis
+6. **Synthesize** — consensus, contested points, unique insights, blind spots, recommendation
+
+**Default: 4 perspectives** — self + 3 dispatched agents (2 subagents + 1 Parallax via [Relay](https://github.com/chrisliu298/relay)). Compact mode reduces to 2 dispatched when explicitly requested.
+
+### Core rules
+
+These are load-bearing constraints — everything else (lens choices, agent count above the minimum, synthesis format) is flexible guidance:
+
+- **Redundancy, not division of labor** — every agent answers the full question end-to-end. If agents get different files, tasks, or deliverables, that is not Prism.
+- **Identical prompts** — the Full Question and Context sections must be word-for-word identical across all dispatched agents. Only the lens line differs.
+- **Hard completion gate** — no synthesis until every dispatched agent has returned.
 
 ---
 
@@ -108,6 +119,29 @@ Tell your agent to deliberate:
 
 Or invoke directly with `/prism`.
 
+### Example output
+
+After all agents return, Prism synthesizes their findings:
+
+```
+## Consensus
+All 4 agents agree the auth middleware should validate tokens at the
+gateway level, not per-service.
+
+## Contested
+Agents 1 and 3 recommend JWT; Agent 2 and Parallax prefer opaque tokens.
+Resolution: opaque tokens — the security audit timeline doesn't allow
+the additional attack surface of self-contained tokens.
+
+## Unique Insights
+Parallax (Codex) identified a timing side-channel in the token comparison
+on line 45 that no other agent caught.
+
+## Recommendation
+Refactor to gateway-level validation with opaque tokens. Fix the timing
+side-channel. Add integration tests for the token refresh flow.
+```
+
 ### What makes a good Prism task?
 
 - Non-trivial decisions with real tradeoffs
@@ -121,6 +155,7 @@ Or invoke directly with `/prism`.
 - Trivial lookups or deterministic transforms
 - Single-correct-answer tasks (what's the syntax for X?)
 - Tasks requiring parallel mutations of shared state
+- Tasks where the relevant context can't fit into one shared evidence packet for every agent
 
 ---
 
@@ -169,9 +204,10 @@ If Relay is not installed, Prism replaces Parallax with a same-model agent using
 ## Safety
 
 - **Read-only agents** — dispatched agents do not edit files, commit, deploy, or trigger side effects during a Prism run
-- **Hard completion gate** — synthesis only begins after ALL agents return; no partial results
+- **Hard completion gate** — synthesis only begins after ALL agents return. If any agent fails or returns unusable output, the user is offered three options: retry, proceed with fewer perspectives, or abort
+- **Noise rejection** — synthesis discards unrequested scope expansion, unsupported single-agent hedging, and context restatement without new analysis
 - **No recursion** — Prism cannot be invoked from within a Prism agent
-- **No contamination** — all prompts are composed before any launch; no revising later prompts after seeing early outputs
+- **No contamination** — all prompts are composed before launching any agent; early outputs must never influence later prompts
 
 ---
 
