@@ -46,7 +46,7 @@ Asking the same question twice gets you the same biases twice. Prism assigns eac
 │   Self    │ Agent 1  │ Agent 2  │    Parallax        │
 │ Integra-  │ Lens: A  │ Lens: B  │    Lens: C         │
 │   tor     │          │          │   (cross-model     │
-│           │          │          │    via /relay)      │
+│           │          │          │    via /relay)     │
 ├───────────┴──────────┴──────────┴────────────────────┤
 │  Synthesis: consensus, contested, unique, gaps       │
 └──────────────────────────────────────────────────────┘
