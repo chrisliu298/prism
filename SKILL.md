@@ -29,13 +29,13 @@ Every agent must receive the full question, analyze the full scope, and produce 
 
 ## Structure
 
-| Tier | Role |
-|------|------|
-| Self | Your own independent analysis while agents run |
-| Subagents | Same-model agents dispatched via Agent tool |
-| Parallax | Cross-model agent dispatched via `/relay` |
+| Tier | Tool to use | Role |
+|------|-------------|------|
+| Self | (none) | Your own independent analysis while agents run |
+| Subagents | **Agent** tool | Same-model agents, one Agent call each |
+| Parallax | **Bash** tool (`/relay`) | Cross-model agent via relay script — NOT an Agent call |
 
-**Default: 4 perspectives** — self + 2 subagents + 1 Parallax. The required dispatched count is 3 by default, or 2 when the user explicitly requests a compact run (acknowledge the reduced diversity and proceed). Self does not count toward the dispatched total.
+**Default: 4 perspectives** — self + 2 subagents + 1 Parallax. The required dispatch is **2 Agent calls + 1 Bash relay call** (3 total, or 1 Agent + 1 Bash relay in compact mode). Self does not count toward the dispatched total. Parallax (the Bash relay call) is always included unless the user explicitly opts out or `/relay` is unavailable.
 
 ### Parallax (cross-model agent)
 
@@ -45,7 +45,7 @@ If `/relay` is unavailable, replace Parallax with a subagent using a **structura
 
 ### Subagents
 
-Same-model agents dispatched via the Agent tool. Each gets a distinct lens. Launch all dispatched agents (subagents + Parallax) concurrently before starting your self-review.
+Same-model agents dispatched via the Agent tool. Each gets a distinct lens. Launch all dispatched agents — Agent calls for subagents, Bash relay call for Parallax — concurrently before starting your self-review.
 
 ## Side-Effect Safety
 
@@ -83,7 +83,7 @@ Run these three checks before launching. If any fails, rewrite and re-check.
 
 2. **Lens quality test:** Each lens name must be a weighing posture (1-3 words), never a task or role. For each lens, write one sentence explaining what unique axis it covers that no other lens does. If two lenses would produce the same emphasis, replace one. At least one lens must be structurally adversarial.
 
-3. **Count test:** Dispatched agents (subagents + Parallax) equals the required count (default 3, or 2 in compact mode). Self does not count.
+3. **Dispatch-shape test:** Dispatched agents (subagents + Parallax) equals the required count (default 3, or 2 in compact mode). Self does not count. Verify the tool types: exactly 1 Bash relay call (Parallax) and the rest Agent calls (subagents). If all dispatches are Agent calls, Parallax is missing — stop and fix.
 
 ### Division-of-labor diagnostic
 
@@ -114,7 +114,9 @@ Starting points — every lens still answers the full question:
 1. Write one canonical Context block with all evidence needed.
 2. Compose all agent prompts using the template.
 3. Run the three pre-launch checks. Fix failures before launch.
-4. Launch all dispatched agents concurrently in the background.
+4. Launch all dispatched agents concurrently in the background. **Dispatch checklist — verify before launching:**
+   - Subagents: dispatched via the **Agent** tool.
+   - Parallax: dispatched via a **Bash** tool call to `/relay` (`run_in_background: true`). This is NOT an Agent call. If your launch set contains only Agent calls and no Bash relay call, you have forgotten Parallax — stop and fix.
 
 Do not poll or sleep-loop — the system notifies you when agents finish.
 
@@ -156,6 +158,7 @@ Re-read the user's original question. Verify your synthesis directly answers it.
 
 - **No recursion:** Do not invoke Prism from within a Prism agent.
 - **No contamination:** Compose all prompts before any launch. Do not revise later prompts after seeing early agent outputs.
+- **No all-same-model dispatch:** If every dispatched call is an Agent tool call, you have dropped Parallax. Stop and add the Bash relay call before launching. Three Agent calls is never a valid default Prism dispatch.
 
 ## Degrees of Freedom
 
