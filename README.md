@@ -2,6 +2,8 @@
 
 **A skill for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [Codex CLI](https://github.com/openai/codex) that strengthens any output through parallel multi-agent deliberation.**
 
+> *A prism splits white light into a spectrum of colors. This skill splits a single question into multiple analytical perspectives — each revealing something the others miss — then recombines them into a complete picture.*
+
 Prism sends the same complete question to multiple independent agents, each answering from a different analytical lens. Convergence across diverse lenses is high-confidence signal; divergence surfaces tradeoffs that need explicit resolution.
 
 Invoke with `/prism` or ask your agent to "use prism" on any task.
