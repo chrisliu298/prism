@@ -1,6 +1,6 @@
 # Prism
 
-**A skill for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [Codex CLI](https://github.com/openai/codex) that strengthens any output through parallel multi-agent deliberation.**
+**A skill for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [Codex](https://github.com/openai/codex) that strengthens any output through parallel multi-agent deliberation.**
 
 > *White light looks simple until it hits a prism — then you see every color was there all along. One question, many angles, nothing hidden.*
 
@@ -93,7 +93,7 @@ curl -sL https://raw.githubusercontent.com/chrisliu298/prism/main/SKILL.md \
   -o ~/.claude/skills/prism/SKILL.md
 ```
 
-**Codex CLI:**
+**Codex:**
 
 ```bash
 mkdir -p ~/.codex/skills/prism
