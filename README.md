@@ -8,7 +8,7 @@ Prism sends the same complete question to multiple independent agents, each answ
 
 Invoke with `/prism` or ask your agent to "use prism" on any task.
 
-Co-authored by Claude Code and Codex.
+Prism was built by the process it teaches. Every revision — naming, protocol design, lens calibration, this README — was reviewed and improved by running `/prism` on itself: multiple agents deliberating from different lenses, then synthesizing into a stronger version. The skill sharpens itself.
 
 ## Table of Contents
 
