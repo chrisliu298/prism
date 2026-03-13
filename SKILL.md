@@ -47,7 +47,7 @@ If `/relay` is unavailable, replace Parallax with a subagent using a **structura
 
 ### Subagents
 
-Same-model agents dispatched via the Agent tool. Each gets a distinct lens. Launch all dispatched agents — Agent calls for subagents, Bash relay call for Parallax — concurrently before starting your self-review.
+Same-model agents dispatched via the Agent tool. Those agents can still invoke skills; "same-model" describes how they are spawned, not a limit on tool access. Each gets a distinct lens. Launch all dispatched agents — Agent calls for subagents, Bash relay call for Parallax — concurrently before starting your self-review.
 
 ## Side-Effect Safety
 
