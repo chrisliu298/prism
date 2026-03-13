@@ -119,6 +119,7 @@ Starting points — every lens still answers the full question:
 4. Launch all dispatched agents concurrently in the background. **Dispatch checklist — verify before launching:**
    - Subagents: dispatched via the **Agent** tool.
    - Parallax: dispatched via a **Bash** tool call to `/relay` (`run_in_background: true`). This is NOT an Agent call. If your launch set contains only Agent calls and no Bash relay call, you have forgotten Parallax — stop and fix.
+   - Before launching Parallax, verify the relay command shape, heredoc body, and Bash timeout (`timeout: 600000`) to avoid wasting a perspective on an avoidable transport error.
 
 Do not poll or sleep-loop — the system notifies you when agents finish.
 
@@ -132,7 +133,10 @@ Since you composed the prompts and chose the lenses, your self-review is not ful
 
 **Do not synthesize until every dispatched agent has returned.**
 
-If an agent fails, errors out, or returns an unusable answer (empty, truncated, off-topic), report the issue and offer the user three options: (a) retry the failed agent, (b) proceed with reduced perspectives, or (c) abort. Do not decide autonomously — a missing perspective changes synthesis quality.
+**Handling failures — diagnose before escalating:**
+
+- **Relay (Parallax) transport failure:** If the Bash relay call fails (missing response file), the peer failed before producing output. Read the `.log` sidecar printed in the error output, diagnose the cause, fix the invocation, and retry once. Common fixes: increase Bash timeout (`timeout: 600000` in Claude Code), fix heredoc formatting, correct the relay command. Do not escalate to the user until you have attempted a diagnosed retry.
+- **Subagent or answer-quality failure:** If an agent returns an unusable answer (empty, truncated, off-topic) after the call itself succeeded, report the issue and offer the user three options: (a) retry the failed agent, (b) proceed with reduced perspectives, or (c) abort. A missing perspective changes synthesis quality.
 
 ### Step 4: Synthesize
 

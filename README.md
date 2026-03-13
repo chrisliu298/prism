@@ -206,7 +206,7 @@ If Relay is not installed, Prism replaces Parallax with a same-model agent using
 ## Safety
 
 - **Read-only agents** — dispatched agents do not edit files, commit, deploy, or trigger side effects during a Prism run
-- **Hard completion gate** — synthesis only begins after ALL agents return. If any agent fails or returns unusable output, the user is offered three options: retry, proceed with fewer perspectives, or abort
+- **Hard completion gate** — synthesis only begins after ALL agents return. Relay transport failures are diagnosed and retried automatically. If an agent returns unusable output after a successful call, the user is offered three options: retry, proceed with fewer perspectives, or abort
 - **Noise rejection** — synthesis discards unrequested scope expansion, unsupported single-agent hedging, and context restatement without new analysis
 - **No recursion** — Prism cannot be invoked from within a Prism agent
 - **No contamination** — all prompts are composed before launching any agent; early outputs must never influence later prompts
