@@ -57,7 +57,7 @@ Self is the primary agent (the one you're talking to). It uses the **Integrator 
 2. **Compose prompts** — word-for-word identical question and context across all agents, only the lens line differs
 3. **Verify** — run pre-launch checks (redundancy, lens quality, count)
 4. **Launch all concurrently** — subagents + Parallax in parallel, then self-review
-5. **Wait for ALL** — hard completion gate, no partial synthesis
+5. **Wait for ALL** — no partial synthesis
 6. **Synthesize** — consensus, contested points, unique insights, blind spots, recommendation
 
 **Default: 4 perspectives** — self + 3 dispatched agents (2 subagents + 1 Parallax via [Relay](https://github.com/chrisliu298/relay)). Compact mode reduces to 2 dispatched when explicitly requested.
@@ -68,7 +68,6 @@ These are load-bearing constraints — everything else (lens choices, agent coun
 
 - **Redundancy, not division of labor** — every agent answers the full question end-to-end. If agents get different files, tasks, or deliverables, that is not Prism.
 - **Identical prompts** — the Full Question and Context sections must be word-for-word identical across all dispatched agents. Only the lens line differs.
-- **Hard completion gate** — no synthesis until every dispatched agent has returned.
 
 ---
 
