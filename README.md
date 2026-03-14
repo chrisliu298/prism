@@ -75,30 +75,18 @@ These are load-bearing constraints — everything else (lens choices, agent coun
 
 ## Installation
 
-### Quick install (npx)
-
-```bash
-npx skills add chrisliu298/prism
-```
-
-This installs the skill for all supported agents (Claude Code, Codex) using the [skills CLI](https://github.com/vercel-labs/skills).
-
-### Manual install (curl)
+Clone into your agent's skills directory:
 
 **Claude Code:**
 
 ```bash
-mkdir -p ~/.claude/skills/prism
-curl -sL https://raw.githubusercontent.com/chrisliu298/prism/main/SKILL.md \
-  -o ~/.claude/skills/prism/SKILL.md
+git clone https://github.com/chrisliu298/prism.git ~/.claude/skills/prism
 ```
 
 **Codex:**
 
 ```bash
-mkdir -p ~/.codex/skills/prism
-curl -sL https://raw.githubusercontent.com/chrisliu298/prism/main/SKILL.md \
-  -o ~/.codex/skills/prism/SKILL.md
+git clone https://github.com/chrisliu298/prism.git ~/.codex/skills/prism
 ```
 
 ### Recommended: install Relay for Parallax
@@ -106,7 +94,7 @@ curl -sL https://raw.githubusercontent.com/chrisliu298/prism/main/SKILL.md \
 Prism's Parallax tier dispatches a cross-model agent via [Relay](https://github.com/chrisliu298/relay). Without Relay, Parallax falls back to a same-model adversarial agent — functional but with reduced model diversity.
 
 ```bash
-npx skills add chrisliu298/relay
+git clone https://github.com/chrisliu298/relay.git ~/.claude/skills/relay
 ```
 
 ---
