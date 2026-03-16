@@ -45,6 +45,14 @@ Parallax is the agent dispatched via `/relay` to a **different model** than your
 
 If `/relay` is unavailable, replace Parallax with a subagent using a **structurally adversarial lens** (Contrarian, Falsification, Disconfirming). A same-model agent with an adversarial posture partially compensates for missing model diversity. The user can also opt out of Parallax explicitly.
 
+**Effort selection for Parallax:** Choose `--effort` based on the assigned lens:
+
+| Lens type | `--effort` | Rationale |
+|-----------|-----------|-----------|
+| Adversarial, Contrarian, Falsification | `high` or `xhigh` | Needs deep reasoning to find subtle flaws |
+| Correctness, Risk, Causal | `high` | Benefits from thorough analysis |
+| Simplicity, Pragmatist, Feasibility, Breadth | `medium` | Pattern-matching; deeper reasoning adds latency without proportional quality gain |
+
 ### Subagents
 
 Same-model agents dispatched via the Agent tool. Those agents can still invoke skills; "same-model" describes how they are spawned, not a limit on tool access. Each gets a distinct lens. Launch all dispatched agents — Agent calls for subagents, Bash relay call for Parallax — concurrently before starting your self-review.
@@ -73,6 +81,10 @@ Every dispatched agent — subagents and Parallax — uses this structure:
 ## Your Lens
 
 You are one of several independent agents answering the same question in full. Your lens is **{LENS_NAME}** — you {one sentence: what this agent weighs more heavily}. Answer the full question end-to-end. Your lens shapes what you emphasize, not what you skip. Do not assume another agent will cover anything you omit. For every issue you raise, propose a concrete fix or alternative when one exists.
+
+## Constraints
+
+You are a read-only analyst. Do not edit files, write files, commit, push, or invoke any skills (/push, /relay, /atomic-push, /publish-skill, or any other slash command). Do not spawn further subagents. Your output is analysis text only.
 ```
 
 The Full Question and Context sections must be **word-for-word identical** across all prompts. The only allowed difference is the lens name and its one-sentence explanation. Agent names (e.g., "Prism agent 1 (lens: simplicity)") are metadata outside the prompt body — they do not count as a prompt difference.
@@ -138,6 +150,16 @@ Since you composed the prompts and chose the lenses, your self-review is not ful
 - **Relay (Parallax) transport failure:** If the Bash relay call fails (missing response file), the peer failed before producing output. Read the `.log` sidecar printed in the error output, diagnose the cause, fix the invocation, and retry once. Common fixes: increase Bash timeout (`timeout: 600000` in Claude Code), fix heredoc formatting, correct the relay command. Do not escalate to the user until you have attempted a diagnosed retry.
 - **Subagent or answer-quality failure:** If an agent returns an unusable answer (empty, truncated, off-topic) after the call itself succeeded, report the issue and offer the user three options: (a) retry the failed agent, (b) proceed with reduced perspectives, or (c) abort. A missing perspective changes synthesis quality.
 
+### Step 3.5: Safety check
+
+Before synthesizing, verify no dispatched agent modified the working tree:
+
+```bash
+git diff --stat HEAD
+```
+
+If the diff shows unexpected changes, flag them to the user before proceeding. Discard the offending agent's output — an agent that violated read-only constraints may have reasoned from a corrupted state.
+
 ### Step 4: Synthesize
 
 Organize findings into these categories (skip empty ones):
@@ -165,6 +187,8 @@ Re-read the user's original question. Verify your synthesis directly answers it.
 - **No recursion:** Do not invoke Prism from within a Prism agent.
 - **No contamination:** Compose all prompts before any launch. Do not revise later prompts after seeing early agent outputs.
 - **No all-same-model dispatch:** If every dispatched call is an Agent tool call, you have dropped Parallax. Stop and add the Bash relay call before launching. Three Agent calls is never a valid default Prism dispatch.
+- **No subagent nesting:** Dispatched agents must not spawn further subagents or invoke skills that spawn agents (/prism, /relay, /lbreview). Prism agents are leaf nodes.
+- **No side effects:** Dispatched agents must not edit files, write files, commit, push, or invoke any user-invocable skill. This is enforced in the agent prompt template and verified before synthesis.
 
 ## Degrees of Freedom
 
