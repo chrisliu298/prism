@@ -45,6 +45,8 @@ Parallax is the agent dispatched via `/relay` to a **different model** than your
 
 If `/relay` is unavailable, replace Parallax with a subagent using a **structurally adversarial lens** (Contrarian, Falsification, Disconfirming). A same-model agent with an adversarial posture partially compensates for missing model diversity. The user can also opt out of Parallax explicitly.
 
+**Constraint leakage risk:** Relay peers load their own skills and may attempt recursive Prism or relay calls if constraints are vague. When adapting the template to XML for relay, preserve the full constraint text — especially the prohibitions on spawning subagents, invoking skills, and orchestrating further agents. The peer has no Prism context and will treat the task as a fresh request unless explicitly told not to.
+
 **Effort selection for Parallax:** Choose `--effort` based on the assigned lens:
 
 | Lens type | `--effort` | Rationale |
@@ -84,7 +86,7 @@ You are one of several independent agents answering the same question in full. Y
 
 ## Constraints
 
-You are a read-only analyst. Do not edit files, write files, commit, push, or invoke any skills (/push, /relay, /atomic-push, /publish-skill, or any other slash command). Do not spawn further subagents. Your output is analysis text only.
+You are a read-only leaf node. Do not edit files, write files, commit, push, or trigger external side effects. Do not spawn subagents, invoke skills (/prism, /relay, /push, or any slash command), or orchestrate further agents — answer the question directly. Your output is analysis text only.
 ```
 
 The Full Question and Context sections must be **word-for-word identical** across all prompts. The only allowed difference is the lens name and its one-sentence explanation. Agent names (e.g., "Prism agent 1 (lens: simplicity)") are metadata outside the prompt body — they do not count as a prompt difference.
@@ -187,7 +189,7 @@ Re-read the user's original question. Verify your synthesis directly answers it.
 - **No recursion:** Do not invoke Prism from within a Prism agent.
 - **No contamination:** Compose all prompts before any launch. Do not revise later prompts after seeing early agent outputs.
 - **No all-same-model dispatch:** If every dispatched call is an Agent tool call, you have dropped Parallax. Stop and add the Bash relay call before launching. Three Agent calls is never a valid default Prism dispatch.
-- **No subagent nesting:** Dispatched agents must not spawn further subagents or invoke skills that spawn agents (/prism, /relay, /lbreview). Prism agents are leaf nodes.
+- **No subagent nesting:** Dispatched agents must not spawn further subagents or invoke skills that spawn agents (/prism, /relay, /lbreview). Prism agents are leaf nodes. This is especially critical for Parallax — relay peers will recurse if the constraint is omitted or weakened in the XML prompt body.
 - **No side effects:** Dispatched agents must not edit files, write files, commit, push, or invoke any user-invocable skill. This is enforced in the agent prompt template and verified before synthesis.
 
 ## Degrees of Freedom
