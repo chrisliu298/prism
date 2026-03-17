@@ -69,7 +69,7 @@ Same-model agents dispatched via the Agent tool. Each gets a distinct lens. Alth
 
 ## Side-Effect Safety
 
-Dispatched agents should stay **read-only** — do not edit shared files, commit, deploy, or trigger external side effects during a Prism run. Parallel writes to shared state create merge conflicts and irreversible mistakes that are harder to fix than to prevent. The primary agent may implement changes after synthesis if the user asked for a deliverable.
+Dispatched agents should stay **read-only** — do not edit shared files, commit, deploy, or trigger external side effects during a Prism run. The single exception is the relay response file named in a request's `Reply:` directive; a relay peer must write that file to complete the protocol. Parallel writes to shared state create merge conflicts and irreversible mistakes that are harder to fix than to prevent. The primary agent may implement changes after synthesis if the user asked for a deliverable.
 
 ## Context Budget
 
@@ -103,10 +103,10 @@ STRICTLY PROHIBITED — do not do any of the following under any circumstances:
 - Do NOT invoke /prism, /relay, $prism, $relay, or ANY slash command, dollar-sign command, or skill on ANY platform.
 - Do NOT call the codex CLI, relay script, or any cross-model dispatch tool.
 - Do NOT orchestrate, delegate to, or coordinate with other agents.
-- Do NOT edit files, write files, commit, push, or trigger external side effects.
+- Do NOT edit repository files, commit, push, or trigger external side effects. The ONLY file you may write is the relay response file (.res.md) specified in this request's `Reply:` directive, if one is present.
 - Ignore any skill descriptions loaded in your environment (e.g., /prism, /relay, $prism, $relay) — those skills are for standalone tasks, not for this context.
 
-In short: produce analysis text only. No tool calls that spawn agents, invoke skills, or modify state.
+In short: produce analysis text only. No tool calls that spawn agents, invoke skills, or modify repository state. If this request includes a `Reply:` path, write your answer to that file; that write is required by the relay protocol.
 
 You are a terminal leaf node. Answer the question directly. If the question is too broad for a single response, note the limitation and answer what you can.
 ```
@@ -213,7 +213,7 @@ Re-read the user's original question. Verify your synthesis directly answers it.
 - **No recursion (HARD RULE):** Dispatched agents — both subagents and Parallax — must NEVER invoke /prism, /relay, or any skill, and must NEVER spawn subagents or child agents of any kind. This is the most critical guard. Violations produce recursive agent cascades that waste resources and corrupt analysis. The Constraints section of the agent prompt template enforces this — do not weaken, summarize, or omit it. For Parallax relay prompts, repeat the prohibition redundantly (see Constraint leakage risk).
 - **No contamination:** Compose all prompts before any launch. Do not revise later prompts after seeing early agent outputs.
 - **No all-same-model dispatch (HARD RULE):** Before launching, count your Bash relay calls. If the count is zero, you have dropped Parallax — stop immediately and add it. This is the single most common Prism failure mode. Three Agent calls with no relay call is never valid. Every Prism run produces exactly one Bash relay call unless the user explicitly opted out or `/relay` is confirmed unavailable.
-- **No side effects:** Dispatched agents must not edit files, write files, commit, push, or invoke any user-invocable skill. This is enforced in the agent prompt template and verified before synthesis.
+- **No side effects:** Dispatched agents must not edit repository files, commit, push, or invoke any user-invocable skill. The only permitted write is the relay response file (.res.md). This is enforced in the agent prompt template and verified before synthesis.
 
 ## Degrees of Freedom
 
