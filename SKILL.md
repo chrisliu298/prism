@@ -104,6 +104,8 @@ Dispatched agents are **read-only** — no edits, commits, deploys, or external 
 
 Build one shared evidence packet (Full Question + Context + Constraints) before composing prompts. Prefer compact digests over full file dumps. Write it to a temporary file once; every agent receives a short launcher prompt referencing this file plus its unique lens. If the packet cannot be duplicated cleanly across all agents, the task is too large for Prism.
 
+**Reference materials (REQUIRED):** Before building the shared packet, identify all reference materials relevant to the question — CLAUDE.md files, READMEs, config files, documentation, skill definitions, style guides, or any file an agent would need to reason about the task. Include the **absolute paths** of these files in the Context section of the shared packet so every agent can read them. Agents cannot discover references on their own; if a path is not listed, the agent will not consult it.
+
 ### Shared Packet Template
 
 Write this to `/tmp/prism-<unique-id>.md` using the Write tool (one call, before any dispatch). Use a unique identifier (e.g., timestamp + random suffix) to prevent collisions between concurrent Prism runs.
@@ -116,6 +118,14 @@ Write this to `/tmp/prism-<unique-id>.md` using the Write tool (one call, before
 ## Context
 
 {Shared evidence packet. Identical across all agents.}
+
+### Reference Materials
+
+{List absolute paths to every file relevant to the question — CLAUDE.md, READMEs, configs, docs, skill files, style guides, etc. Agents MUST read these before answering.}
+
+- /path/to/relevant/file1
+- /path/to/relevant/file2
+- ...
 
 ## Constraints
 
