@@ -105,7 +105,7 @@ Tell your agent to deliberate:
 
 > "I need a prism analysis on whether to use SQL or NoSQL for this"
 
-Or invoke directly with `/prism` (Claude Code) or `$prism` (Codex) — also available to subagents.
+Or invoke directly with `prism` — also available to subagents.
 
 ### Example output
 

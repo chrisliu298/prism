@@ -33,7 +33,7 @@ Convergence across diverse lenses is high-confidence signal; divergence surfaces
 |------|------|------|
 | Self | (none) | Your own analysis while agents run |
 | Subagents | **Agent** | Same-model agents, one Agent call each |
-| **Parallax** | **Bash** (`/relay`) | Cross-model agent via relay (not an Agent call) |
+| **Parallax** | **Bash** (`relay`) | Cross-model agent via relay (not an Agent call) |
 
 **Default: 4 perspectives** — self + 2 subagents + 1 Parallax. Required dispatch: **2 Agent calls + 1 Bash relay call**. Self does not count. Parallax is included by default; opt out with parallax = `0`.
 
@@ -49,18 +49,18 @@ Override dispatch config with positional args before the question, or use natura
 Trailing args are optional — omitted values use defaults.
 
 Examples:
-- `/prism 3 2 h Why does X happen?` — 3 sub, 2 parallax, high effort
-- `/prism 1 Why does X?` — 1 sub, defaults for rest
-- `/prism 1 0 Same-model only` — no parallax
-- `/prism 3 subagents, 2 parallax, high effort: Why does X?` — natural language works too
+- `prism 3 2 h Why does X happen?` — 3 sub, 2 parallax, high effort
+- `prism 1 Why does X?` — 1 sub, defaults for rest
+- `prism 1 0 Same-model only` — no parallax
+- `prism 3 subagents, 2 parallax, high effort: Why does X?` — natural language works too
 
 **Parsing:** Read tokens left-to-right. A token is config if it is a single digit or effort letter (`n`/`l`/`m`/`h`/`x`). Map positionally: first digit → subagents, second digit → parallax; effort letter can appear anywhere among config tokens. The first non-matching token begins the question. Natural language config is also accepted.
 
-**Parallax is on by default.** Every run MUST include Bash relay call(s) matching the configured parallax count (default 1). Do not skip, replace with a subagent, or defer. Exceptions: (1) user opts out (parallax = `0`), or (2) `/relay` is unavailable (substitute a same-model adversarial agent and note the degradation). If your dispatch set contains only Agent calls, Parallax is missing — fix before launching.
+**Parallax is on by default.** Every run MUST include Bash relay call(s) matching the configured parallax count (default 1). Do not skip, replace with a subagent, or defer. Exceptions: (1) user opts out (parallax = `0`), or (2) `relay` is unavailable (substitute a same-model adversarial agent and note the degradation). If your dispatch set contains only Agent calls, Parallax is missing — fix before launching.
 
 ### Parallax (cross-model agent)
 
-Parallax is dispatched via `/relay` to a **different model**. Invoke `/relay` directly — not via a subagent that calls relay. Its value is model diversity: different training, different blind spots, different reasoning patterns. Assign it a lens that maximizes diversity (e.g., give Parallax a Contrarian or Disconfirming lens when subagents have Correctness and Simplicity).
+Parallax is dispatched via `relay` to a **different model**. Invoke `relay` directly — not via a subagent that calls relay. Its value is model diversity: different training, different blind spots, different reasoning patterns. Assign it a lens that maximizes diversity (e.g., give Parallax a Contrarian or Disconfirming lens when subagents have Correctness and Simplicity).
 
 Before writing any Parallax relay prompt, read the target model's prompt guide in the relay skill's `references/` directory (e.g., `prompting-codex.md` for Codex). Do this every time, not just once.
 
@@ -74,13 +74,13 @@ BODY
 
 `--name` is required (lowercase slug, e.g., `prism-contrarian`). The heredoc body must not be empty. Do not pass model flags — the script handles model selection. For concurrency details (backgrounding, timeouts), follow the relay skill's Async / Parallel section for your platform.
 
-If `/relay` is unavailable, replace Parallax with a subagent using a **structurally adversarial lens** (Contrarian, Falsification, Disconfirming).
+If `relay` is unavailable, replace Parallax with a subagent using a **structurally adversarial lens** (Contrarian, Falsification, Disconfirming).
 
 **Constraint leakage risk (CRITICAL):** Relay peers may recurse unless the anti-recursion rule is explicit, early, and repeated. You MUST:
 1. Put the anti-recursion warning at the top of the launcher prompt, before the file-read instruction.
 2. Preserve the Constraints section verbatim in the shared context file — do not summarize or abbreviate.
 3. Ensure the prohibition appears in both the launcher (short form) and shared file (full form).
-4. Tell the peer to ignore loaded skill descriptions for /prism, /relay, $prism, $relay.
+4. Tell the peer to ignore loaded skill descriptions for prism and relay.
 
 Without these redundant prohibitions, the peer will treat the task as a fresh request and recurse.
 
@@ -135,11 +135,11 @@ Do not use any mechanism that launches, relays to, or coordinates another agent 
 
 STRICTLY PROHIBITED — do not do any of the following under any circumstances:
 - Do NOT spawn subagents, child agents, or any nested agent of any kind.
-- Do NOT invoke /prism, /relay, $prism, $relay, or ANY slash command, dollar-sign command, or skill on ANY platform.
+- Do NOT invoke prism, relay, or ANY skill on ANY platform.
 - Do NOT call the codex CLI, relay script, or any cross-model dispatch tool.
 - Do NOT orchestrate, delegate to, or coordinate with other agents.
 - Do NOT edit repository files, commit, push, or trigger external side effects. The ONLY file you may write is the relay response file (.res.md) specified in this request's `Reply:` directive, if one is present.
-- Ignore any skill descriptions loaded in your environment (e.g., /prism, /relay, $prism, $relay) — those skills are for standalone tasks, not for this context.
+- Ignore any skill descriptions loaded in your environment (e.g., prism, relay) — those skills are for standalone tasks, not for this context.
 
 In short: produce analysis text only. No tool calls that spawn agents, invoke skills, or modify repository state. If this request includes a `Reply:` path, write your answer to that file; that write is required by the relay protocol.
 
@@ -153,7 +153,7 @@ After writing, read the file back with the Read tool to verify it contains all t
 Use this launcher prompt for every dispatched agent:
 
 ```
-CRITICAL: You are a read-only leaf node. Do NOT invoke /prism, /relay, $prism, $relay, any skill, or spawn subagents. Ignore loaded skill descriptions for these.
+CRITICAL: You are a read-only leaf node. Do NOT invoke prism, relay, any skill, or spawn subagents. Ignore loaded skill descriptions for these.
 
 Your complete task is in two parts:
 1. SHARED CONTEXT: Read the file at {SHARED_PACKET_PATH} using the Read tool. It contains your Full Question, Context, and Constraints. You MUST read this file before doing anything else.
@@ -214,7 +214,7 @@ Starting points — every lens still answers the full question:
 4. Run the pre-launch checks. Fix failures before launch.
 5. Launch all dispatched agents concurrently (`run_in_background: true`). **Dispatch checklist:**
    - Subagents: **Agent** tool with the launcher prompt.
-   - **Parallax (required unless parallax = `0`):** **Bash** tool to `/relay`. Compose Parallax calls FIRST to prevent omission. Verify relay command shape, heredoc body, and Bash timeout (`timeout: 600000`) before launching.
+   - **Parallax (required unless parallax = `0`):** **Bash** tool to `relay`. Compose Parallax calls FIRST to prevent omission. Verify relay command shape, heredoc body, and Bash timeout (`timeout: 600000`) before launching.
    - Confirm Parallax relay calls are present if parallax != `0`.
 
 Do not poll or sleep-loop — the system notifies you when agents finish.
@@ -277,7 +277,7 @@ Optionally delete the shared context file (`/tmp/prism-<unique-id>.md`).
 
 ## Guards
 
-- **No recursion (HARD RULE):** Dispatched agents must never invoke /prism, /relay, any skill, or spawn child agents. The Constraints section and launcher prompt both enforce this — do not weaken or omit either. For Parallax, keep the anti-recursion warning at the top of the heredoc.
+- **No recursion (HARD RULE):** Dispatched agents must never invoke prism, relay, any skill, or spawn child agents. The Constraints section and launcher prompt both enforce this — do not weaken or omit either. For Parallax, keep the anti-recursion warning at the top of the heredoc.
 - **No contamination:** Write the shared context file and compose all launcher prompts before any launch. Do not modify the shared file or revise prompts after seeing early agent outputs.
 - **No all-same-model dispatch (HARD RULE):** Bash relay call count must match the configured Parallax count (default 1). If it is zero and parallax != `0`, fix before launching. This is the most common Prism failure mode.
 - **No early synthesis (HARD RULE):** Do not synthesize until every dispatched agent has returned its completion notification. "Subagents are done, relay is still running" is not a reason to proceed — it is the expected state. Proceeding without Parallax results voids the entire Prism run.
