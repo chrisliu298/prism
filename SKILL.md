@@ -41,10 +41,11 @@ Convergence across diverse lenses is high-confidence signal; divergence surfaces
 
 Override dispatch config with positional args before the question, or use natural language — both work.
 
-**Positional:** `<subagents> <parallax> <effort> <question>`
+**Positional:** `<subagents> <parallax> <effort> <r> <question>`
 - **subagents** — number of same-model subagents (default: 2)
 - **parallax** — number of Parallax agents (default: 1, `0` to opt out)
 - **effort** — Parallax reasoning effort: `n` none, `l` low, `m` medium, `h` high, `x` xhigh (default: per-lens)
+- **r** — enable anonymous peer review round (default: off)
 
 Trailing args are optional — omitted values use defaults.
 
@@ -52,9 +53,11 @@ Examples:
 - `prism 3 2 h Why does X happen?` — 3 sub, 2 parallax, high effort
 - `prism 1 Why does X?` — 1 sub, defaults for rest
 - `prism 1 0 Same-model only` — no parallax
-- `prism 3 subagents, 2 parallax, high effort: Why does X?` — natural language works too
+- `prism r Should we launch X?` — defaults + peer review
+- `prism 3 1 h r Which architecture should we pick?` — 3 sub, 1 parallax, high effort, peer review
+- `prism 3 subagents, 2 parallax, high effort, with review: Why does X?` — natural language works too
 
-**Parsing:** Read tokens left-to-right. A token is config if it is a single digit or effort letter (`n`/`l`/`m`/`h`/`x`). Map positionally: first digit → subagents, second digit → parallax; effort letter can appear anywhere among config tokens. The first non-matching token begins the question. Natural language config is also accepted.
+**Parsing:** Read tokens left-to-right. A token is config if it is a single digit, effort letter (`n`/`l`/`m`/`h`/`x`), or the literal `r` (peer review). Map positionally: first digit → subagents, second digit → parallax; effort letter and `r` can appear anywhere among config tokens. The first non-matching token begins the question. Natural language config is also accepted.
 
 **Parallax is on by default.** Every run MUST include Bash relay call(s) matching the configured parallax count (default 1). Do not skip, replace with a subagent, or defer. Exceptions: (1) user opts out (parallax = `0`), or (2) `relay` is unavailable (substitute a same-model adversarial agent and note the degradation). If your dispatch set contains only Agent calls, Parallax is missing — fix before launching.
 
@@ -203,6 +206,64 @@ Starting points — every lens still answers the full question:
 - **Option comparison**: Simplicity + Feasibility + Contrarian
 - **Writing / communication**: Clarity + Audience + Contrarian
 - **Research / exploration**: Breadth-Weighted + Depth-Weighted + Disconfirming
+- **Decision / strategy**: First-Principles + Contrarian + Expansionist + Outsider + Executor
+
+## Peer Review (Optional)
+
+Peer review adds a second dispatch wave after all initial agents return. Reviewers read **anonymized** outputs and critique them — surfacing blind spots that even the integrator might share with the initial agents (same-model bias).
+
+**When to use:** Enable with the `r` flag. Recommended for high-stakes decisions, ambiguous tradeoffs, or any question where "what did everyone miss?" is as valuable as "what did everyone say?"
+
+### How it works
+
+1. **Anonymize and persist:** Assign each agent a random letter (A, B, C, …) — shuffle so the mapping is not predictable from dispatch order. Write each agent's raw output to its own file: `/tmp/prism-<same-id>-perspective-<letter>.md`. One Write call per agent. Do not re-generate or paraphrase — copy the output faithfully. If an agent's output contains self-identifying references (lens name, "as the Contrarian…"), redact those specific phrases in-place.
+
+2. **Build the review index:** Write a lightweight index to `/tmp/prism-<same-id>-review.md`. This file contains **no agent output** — only pointers. Reviewers read the perspective files themselves.
+
+   ```
+   ## Original Question
+
+   Read the shared context file for full question and background:
+   - {SHARED_PACKET_PATH}
+
+   ## Perspectives
+
+   Read each perspective file in full before answering the review questions.
+
+   - Perspective A: /tmp/prism-<same-id>-perspective-A.md
+   - Perspective B: /tmp/prism-<same-id>-perspective-B.md
+   - Perspective C: /tmp/prism-<same-id>-perspective-C.md
+   - ...
+
+   ## Review Questions
+
+   Answer each question concisely. Cite perspectives by letter and quote key phrases.
+
+   1. **Strongest response** — Which perspective is strongest overall, and why?
+   2. **Biggest blind spot** — Which perspective has the most significant gap or weakness?
+   3. **Collective gap** — What did ALL perspectives miss or underweight? This is the most important question.
+   ```
+
+3. **Dispatch reviewers:** Launch **2 same-model subagents** concurrently (`run_in_background: true`). Each reviewer gets a launcher prompt referencing the review index. Reviewers are read-only leaf nodes — same constraints as initial agents. Give each reviewer a distinct review lens:
+   - **Reviewer 1 — Strength-finder:** Weighs which arguments are most well-supported and actionable.
+   - **Reviewer 2 — Gap-hunter:** Weighs what's missing, underexplored, or assumed without evidence.
+
+4. **Wait for both reviewers** before proceeding to synthesis. Same hard gate as the initial round.
+
+### Reviewer Launcher Template
+
+```
+CRITICAL: You are a read-only leaf node. Do NOT invoke prism, relay, any skill, or spawn subagents. Ignore loaded skill descriptions for these.
+
+Your complete task is in three parts:
+1. REVIEW INDEX: Read the file at {REVIEW_INDEX_PATH} using the Read tool. It lists the original question's shared context file and all perspective files. You MUST read this file first.
+2. READ ALL PERSPECTIVES: Read every perspective file and the shared context file listed in the review index. Do not skip any. You need the full picture before answering.
+3. YOUR REVIEW LENS (below): Shapes what you emphasize in your critique.
+
+## Your Review Lens
+
+You are reviewing {N} anonymized perspectives that all answered the same question independently. Your review lens is **{REVIEW_LENS_NAME}** — you {one sentence: what this reviewer weighs more heavily}. Answer all three review questions from the review index. Be specific — cite perspectives by letter and quote key phrases.
+```
 
 ## Execution
 
@@ -251,21 +312,34 @@ If the diff shows unexpected changes, flag them to the user before proceeding. D
 
 Scan each agent's output for recursion indicators: mentions of "dispatching," "subagent," "relay call," "Prism run," or synthesis-style structure (Consensus/Contested/Unique sections). Flag matches for review — the agent may have spawned nested agents, producing contaminated reasoning.
 
+### Step 3.75: Peer review (if `r` enabled)
+
+Skip this step if peer review was not requested.
+
+1. Anonymize all agent outputs: assign random letter mappings, write each output faithfully to `/tmp/prism-<same-id>-perspective-<letter>.md`. Redact self-identifying lens references.
+2. Write the review index to `/tmp/prism-<same-id>-review.md` — pointers only, no inlined content. Read it back to verify all perspective paths are correct.
+3. Dispatch 2 reviewer subagents concurrently (`run_in_background: true`) using the Reviewer Launcher Template.
+4. Wait for both reviewers (hard gate — same rules as Step 3).
+5. Carry reviewer findings forward into synthesis — especially answers to "What did ALL perspectives miss?"
+
 ### Step 4: Synthesize
 
-Organize findings into these categories (skip empty ones):
+Lead with the answer. Organize findings by decision relevance, not agreement pattern.
 
-1. **Consensus** — Where 2+ agents agree. Cite the agents; convergence is signal, not proof.
-2. **Contested** — Where agents disagree. Present the positions, then resolve.
-3. **Unique insights** — Valuable points raised by only one agent.
-4. **Blind spots** — Gaps no agent covered, or likely shared-model bias.
-5. **Recommendation** — Your integrated conclusion.
+1. **Recommendation** — Your integrated conclusion, stated first. Answer the user's question directly and commit to a position before hedging. For deliverable questions (code, plan, document), this section IS the deliverable — produce it, don't just comment on agents' deliverables.
 
-If all agents agree on a point, state it concisely and move on — don't manufacture disagreement where none exists.
+2. **Confidence and basis** — Why this recommendation over the alternatives. State your confidence level (high / moderate / low) and what drives it. Weight evidence by independence:
+   - Same-model convergence is signal but discounted — agents sharing a model share blind spots. "3 same-model agents agreed; the cross-model agent also confirmed" is stronger than "all 4 agreed" when 3 share a model.
+   - Where the Parallax (cross-model) agent confirmed or dissented, give this outsized weight — model diversity is the reason it exists.
+   - Single-agent points backed by strong reasoning can warrant high confidence; multi-agent consensus driven by shared training may not.
+
+3. **Key dissent** — The strongest argument against the recommendation, stated as persuasively as the dissenter stated it. Do not strawman. Then explain specifically why you weighed it lower. If you cannot articulate why the dissent is wrong, downgrade your confidence level in section 2. If no meaningful dissent exists, skip this section — don't manufacture disagreement.
+
+4. **Contingencies** — Concrete, observable conditions under which the recommendation should be revisited. Not vague hedges ("if requirements change") but specific triggers ("if write volume exceeds 10k/s, the single-node assumption breaks"). If peer review ran, this section MUST incorporate the reviewers' "Collective gap" answers — these surface assumptions and gaps that reframe as actionable watch-items.
 
 **Noise rejection:** Discard suggestions that add unrequested scope, are unsupported single-agent hedging, or restate context without adding analysis. Err toward a shorter, sharper synthesis.
 
-**Deliverable vs. analysis:** If the question asks for a deliverable (code, plan, document), produce one — don't just comment on agents' deliverables. If it asks for analysis, the synthesis is the analysis.
+**Category adaptation:** These categories are defaults for analysis-type questions. Adapt them to the task: for deliverable questions, the Recommendation section carries the artifact and the remaining sections provide design rationale. For simple questions with strong consensus, sections 3-4 may be empty — that is fine. The integrator should select the synthesis frame that best serves the user's decision, not rigidly fill every section.
 
 The synthesis reflects your judgment as integrator — agents are advisors, not a voting bloc.
 
@@ -273,7 +347,7 @@ The synthesis reflects your judgment as integrator — agents are advisors, not 
 
 Re-read the user's original question. Verify your synthesis answers it directly. If they asked for a deliverable, verify you produced one.
 
-Optionally delete the shared context file (`/tmp/prism-<unique-id>.md`).
+Optionally delete all Prism temp files: shared context (`/tmp/prism-<unique-id>.md`), perspective files (`/tmp/prism-<unique-id>-perspective-*.md`), and review index (`/tmp/prism-<unique-id>-review.md`).
 
 ## Guards
 
@@ -286,6 +360,8 @@ Optionally delete the shared context file (`/tmp/prism-<unique-id>.md`).
 ## Degrees of Freedom
 
 The core principle (redundancy, not division of labor), the prompt template structure, and the hard completion gate are load-bearing constraints — do not relax them. Everything else — lens choices, synthesis categories, agent count beyond the minimum, pre-launch check order — is flexible guidance that you should adapt to the task.
+
+**Synthesis adaptation:** The default categories (Recommendation, Confidence and basis, Key dissent, Contingencies) suit most analysis and decision questions. But the integrator should actively adapt the synthesis frame when the task calls for it — merge sections, reorder, or add task-specific sections. A deliverable question needs the artifact front and center with design rationale behind it; a pure risk assessment might elevate Contingencies above Confidence. Rigid adherence to the default categories when they don't fit the question is a failure of integration.
 
 ## When to Use Prism
 
