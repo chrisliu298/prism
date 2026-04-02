@@ -216,9 +216,31 @@ Peer review adds a second dispatch wave after all initial agents return. Reviewe
 
 ### How it works
 
-1. **Anonymize and persist:** Assign each agent a random letter (A, B, C, …) — shuffle so the mapping is not predictable from dispatch order. Write each agent's raw output to its own file: `/tmp/prism-<same-id>-perspective-<letter>.md`. One Write call per agent. Do not re-generate or paraphrase — copy the output faithfully. If an agent's output contains self-identifying references (lens name, "as the Contrarian…"), redact those specific phrases in-place.
+1. **Anonymize and persist from disk:** Assign each agent a random letter (A, B, C, …) — shuffle so the mapping is not predictable from dispatch order. **Do not use Write to re-emit agent outputs.** Instead, create perspective files from existing on-disk artifacts using a single Bash call:
 
-2. **Build the review index:** Write a lightweight index to `/tmp/prism-<same-id>-review.md`. This file contains **no agent output** — only pointers. Reviewers read the perspective files themselves.
+   - **Relay agents:** `cp` the `.res.md` file (path is in the Bash completion result). Pipe through `sed` to strip YAML frontmatter and redact lens self-references.
+   - **Subagents:** Extract the final assistant response from the Agent tool's JSONL output file using `jq`, pipe through `sed` for redaction. The output file path is visible in the Agent tool result metadata (e.g., `/private/tmp/claude-501/.../tasks/<agent-id>.output`). The extraction command:
+     ```bash
+     jq -sr '[.[] | select(.type=="assistant")] | last | .message.content |
+       if type=="array" then [.[] | select(.type=="text") | .text] | join("\n") else . end' \
+       "$AGENT_OUTPUT_FILE" | sed 's/Simplicity/[redacted]/gi' \
+       > /tmp/prism-<id>-perspective-<letter>.md
+     ```
+   - **Fallback:** If `jq` extraction fails for a subagent (schema change, missing file), fall back to Write for that single perspective. Log the fallback.
+
+   Batch all `cp`/`jq`/`sed` commands into as few Bash calls as possible. Build `sed` patterns dynamically from the lens names assigned during dispatch.
+
+   **Platform dependency:** The subagent JSONL format and output file path are internal to the Claude Code runtime and may change. The relay `.res.md` path is a stable protocol contract. If the JSONL extraction breaks, the Write fallback activates automatically — no data loss, just degraded token cost.
+
+2. **Anonymization check (fail-closed):** Before building the review index, verify perspective files are clean. Build the grep pattern dynamically from the **actual lens names assigned in this run** — do not use a hardcoded list of all possible terms. Prism architecture terms like "Parallax" or "cross-model" are NOT identity markers — they may appear legitimately when agents discuss Prism itself.
+   ```bash
+   # Only check for the lenses actually used in this run
+   LENSES="LensA|LensB|LensC|LensD"  # substitute actual names
+   grep -ilP "(?i)(${LENSES})" /tmp/prism-<id>-perspective-*.md
+   ```
+   If any assigned lens name survives redaction, fix the `sed` pattern and re-run before proceeding. Do not dispatch reviewers with leaky perspective files.
+
+3. **Build the review index:** Write a lightweight index to `/tmp/prism-<same-id>-review.md`. This file contains **no agent output** — only pointers. Reviewers read the perspective files themselves.
 
    ```
    ## Original Question
@@ -244,11 +266,11 @@ Peer review adds a second dispatch wave after all initial agents return. Reviewe
    3. **Collective gap** — What did ALL perspectives miss or underweight? This is the most important question.
    ```
 
-3. **Dispatch reviewers:** Launch **2 same-model subagents** concurrently (`run_in_background: true`). Each reviewer gets a launcher prompt referencing the review index. Reviewers are read-only leaf nodes — same constraints as initial agents. Give each reviewer a distinct review lens:
+4. **Dispatch reviewers:** Launch **2 same-model subagents** concurrently (`run_in_background: true`). Each reviewer gets a launcher prompt referencing the review index. Reviewers are read-only leaf nodes — same constraints as initial agents. Give each reviewer a distinct review lens:
    - **Reviewer 1 — Strength-finder:** Weighs which arguments are most well-supported and actionable.
    - **Reviewer 2 — Gap-hunter:** Weighs what's missing, underexplored, or assumed without evidence.
 
-4. **Wait for both reviewers** before proceeding to synthesis. Same hard gate as the initial round.
+5. **Wait for both reviewers** before proceeding to synthesis. Same hard gate as the initial round.
 
 ### Reviewer Launcher Template
 
@@ -316,11 +338,12 @@ Scan each agent's output for recursion indicators: mentions of "dispatching," "s
 
 Skip this step if peer review was not requested.
 
-1. Anonymize all agent outputs: assign random letter mappings, write each output faithfully to `/tmp/prism-<same-id>-perspective-<letter>.md`. Redact self-identifying lens references.
-2. Write the review index to `/tmp/prism-<same-id>-review.md` — pointers only, no inlined content. Read it back to verify all perspective paths are correct.
-3. Dispatch 2 reviewer subagents concurrently (`run_in_background: true`) using the Reviewer Launcher Template.
-4. Wait for both reviewers (hard gate — same rules as Step 3).
-5. Carry reviewer findings forward into synthesis — especially answers to "What did ALL perspectives miss?"
+1. Anonymize from disk: assign random letter mappings, create perspective files from existing on-disk artifacts using Bash `cp`/`jq`/`sed` (see "How it works" for per-agent-type details). Do not use Write to re-emit agent outputs.
+2. Run the fail-closed anonymization check. Fix any surviving identity markers before proceeding.
+3. Write the review index to `/tmp/prism-<same-id>-review.md` — pointers only, no inlined content. Read it back to verify all perspective paths are correct.
+4. Dispatch 2 reviewer subagents concurrently (`run_in_background: true`) using the Reviewer Launcher Template.
+5. Wait for both reviewers (hard gate — same rules as Step 3).
+6. Carry reviewer findings forward into synthesis — especially answers to "What did ALL perspectives miss?"
 
 ### Step 4: Synthesize
 
