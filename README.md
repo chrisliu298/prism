@@ -40,16 +40,16 @@ Asking the same question twice gets you the same biases twice. Prism assigns eac
 ## How It Works
 
 ```
-┌──────────────────────────────────────────────────────┐
-│  User question + shared context                      │
-├───────────┬──────────┬──────────┬────────────────────┤
-│   Self    │ Agent 1  │ Agent 2  │    Parallax        │
-│ Integra-  │ Lens: A  │ Lens: B  │    Lens: C         │
-│   tor     │          │          │   (cross-model     │
-│           │          │          │    via /relay)     │
-├───────────┴──────────┴──────────┴────────────────────┤
+┌───────────────────────────────────────────────────────┐
+│  User question + shared context                       │
+├───────────┬──────────┬──────────┬─────────────────────┤
+│   Self    │ Agent 1  │ Agent 2  │    Parallax         │
+│ Integra-  │ Lens: A  │ Lens: B  │    Lens: C          │
+│   tor     │          │          │   (cross-model      │
+│           │          │          │    via /relay)      │
+├───────────┴──────────┴──────────┴─────────────────────┤
 │  Synthesis: recommendation, confidence, dissent, gaps │
-└──────────────────────────────────────────────────────┘
+└───────────────────────────────────────────────────────┘
 ```
 
 Self is the primary agent (the one you're talking to). It uses the **Integrator Lens** — weighing holistic coherence, feasibility, and alignment with your goals — and forms its own position while dispatched agents run in parallel.
