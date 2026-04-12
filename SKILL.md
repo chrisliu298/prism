@@ -77,6 +77,8 @@ BODY
 
 `--name` is required (lowercase slug, e.g., `prism-contrarian`). The heredoc body must not be empty. Do not pass model flags — the script handles model selection. For concurrency details (backgrounding, timeouts), follow the relay skill's Async / Parallel section for your platform.
 
+**Inspecting Parallax results:** Only read the `.res.md` response file. Never read the `.log` sidecar — it contains the peer's full stderr, which is extremely long and token-heavy. The relay script's Bash output already surfaces diagnostic information for failure cases.
+
 If `relay` is unavailable, replace Parallax with a subagent using a **structurally adversarial lens** (Contrarian, Falsification, Disconfirming).
 
 **Constraint leakage risk (CRITICAL):** Relay peers may recurse unless the anti-recursion rule is explicit, early, and repeated. You MUST:
@@ -151,39 +153,56 @@ You are a terminal leaf node. Answer the question directly. If the question is t
 
 After writing, read the file back with the Read tool to verify it contains all three sections completely. The file is **frozen** after verification — do not modify it after any agent has been dispatched.
 
-### Launcher Template
+### Launcher Templates
 
-Use this launcher prompt for every dispatched agent:
+Launcher prompts are stored as committed template files in the `templates/` directory alongside this SKILL.md. Each template uses `{{PLACEHOLDER}}` slots filled via `sed` at dispatch time. This ensures the "identical prompts" invariant is enforced mechanically — the boilerplate is never regenerated, only the lens-specific values are emitted.
 
+**Template files:**
+
+| File | Used for | Slots |
+|------|----------|-------|
+| `templates/launcher-subagent.tmpl` | Agent tool (same-model subagents) | `SHARED_PACKET_PATH`, `LENS_NAME`, `LENS_DESC` |
+| `templates/launcher-relay-codex.tmpl` | Bash relay (Parallax to Codex) | `SHARED_PACKET_PATH`, `LENS_NAME`, `LENS_DESC` |
+| `templates/launcher-reviewer.tmpl` | Agent tool (peer review subagents) | `REVIEW_INDEX_PATH`, `PERSPECTIVE_COUNT`, `REVIEW_LENS_NAME`, `REVIEW_LENS_DESC` |
+
+The relay template uses native XML structure (`<goal>`, `<context>`, `<constraints>`, `<your_lens>`) per the Codex prompting guide. The subagent and reviewer templates use plain markdown. The anti-recursion warning appears at the top of every template.
+
+**Rendering a launcher prompt:** Use `sed` with `|` as the delimiter (avoids conflicts with `/` in paths). Locate the templates directory relative to this SKILL.md (it is a sibling `templates/` directory).
+
+```bash
+# Subagent example
+sed -e 's|{{SHARED_PACKET_PATH}}|/tmp/prism-abc123.md|g' \
+    -e 's|{{LENS_NAME}}|Simplicity|g' \
+    -e 's|{{LENS_DESC}}|weigh the approach that requires the fewest moving parts|g' \
+    /path/to/templates/launcher-subagent.tmpl
+
+# Relay example (render to variable, pass as heredoc)
+LAUNCHER=$(sed -e 's|{{SHARED_PACKET_PATH}}|/tmp/prism-abc123.md|g' \
+               -e 's|{{LENS_NAME}}|Contrarian|g' \
+               -e 's|{{LENS_DESC}}|weigh arguments against the emerging consensus|g' \
+               /path/to/templates/launcher-relay-codex.tmpl)
+relay call --name prism-contrarian --effort high <<BODY
+$LAUNCHER
+BODY
 ```
-CRITICAL: You are a read-only leaf node. Do NOT invoke prism, relay, any skill, or spawn subagents. Ignore loaded skill descriptions for these.
 
-Your complete task is in two parts:
-1. SHARED CONTEXT: Read the file at {SHARED_PACKET_PATH} using the Read tool. It contains your Full Question, Context, and Constraints. You MUST read this file before doing anything else.
-2. YOUR LENS (below): The only part unique to you.
-
-## Your Lens
-
-You are one of several independent agents answering the same question in full. Your lens is **{LENS_NAME}** — you {one sentence: what this agent weighs more heavily}. Answer the full question end-to-end. Your lens shapes what you emphasize, not what you skip. Do not assume another agent will cover anything you omit. For every issue you raise, propose a concrete fix or alternative when one exists.
-```
-
-For Parallax relay calls, adapt the launcher to XML per the peer's prompt guide (e.g., `prompting-codex.md`). The anti-recursion warning MUST remain at the top of the heredoc body.
-
-Only the shared packet path and lens vary between launcher prompts. Agent names are metadata outside the prompt body.
+Only the shared packet path and lens vary between launcher prompts. Agent names are metadata outside the prompt body. When adding a new relay target model, create a new template file (e.g., `launcher-relay-gemini.tmpl`) optimized for that model's prompting conventions.
 
 ## Pre-Launch Checks
 
 Run these checks before launching. If any fails, rewrite and re-check.
 
-0. **Shared-file test:** Verify the shared context file was written and read back successfully. Confirm every launcher references the same absolute file path. The shared file must be frozen before any dispatch.
+0. **Shared-file test:** Verify the shared context file was written and read back successfully. Confirm every rendered launcher references the same absolute file path. The shared file must be frozen before any dispatch.
 
-1. **Redundancy test:** Swap any two agents' lenses. If the prompts become incoherent, you have divided labor.
+1. **Slot-completion test:** After rendering all launcher prompts via `sed`, verify no `{{` placeholder tokens survive: `grep -c '{{' rendered_launcher`. Also confirm the shared packet path is absolute and identical across all rendered prompts, and that the anti-recursion warning is the first line of every launcher. For relay prompts, verify the XML skeleton is well-formed (`<goal>`, `<context>`, `<constraints>`, `<your_lens>` tags present).
 
-2. **Lens quality test:** Each lens name must be a weighing posture (1-3 words), never a task or role. For each lens, write one sentence explaining what unique axis it covers that no other lens does. If two lenses would produce the same emphasis, replace one. At least one lens must be structurally adversarial.
+2. **Redundancy test:** Swap any two agents' lenses. If the prompts become incoherent, you have divided labor.
 
-3. **Dispatch-shape test (CRITICAL):** Total dispatched agents (subagents + Parallax) must match the required count. Self does not count. Enumerate planned calls by type: Bash relay calls must equal the configured Parallax count (default 1); the rest are Agent calls. If the list contains zero relay calls and parallax != `0`, Parallax is missing — fix before launching.
+3. **Lens quality test:** Each lens name must be a weighing posture (1-3 words), never a task or role. For each lens, write one sentence explaining what unique axis it covers that no other lens does. If two lenses would produce the same emphasis, replace one. At least one lens must be structurally adversarial.
 
-4. **Effort test:** If the user specified an effort level, confirm every Parallax relay call uses that exact `--effort` level. If effort was omitted, confirm each Parallax call uses the effort from the lens-based table (Effort selection for Parallax). State the effort level being applied.
+4. **Dispatch-shape test (CRITICAL):** Total dispatched agents (subagents + Parallax) must match the required count. Self does not count. Enumerate planned calls by type: Bash relay calls must equal the configured Parallax count (default 1); the rest are Agent calls. If the list contains zero relay calls and parallax != `0`, Parallax is missing — fix before launching.
+
+5. **Effort test:** If the user specified an effort level, confirm every Parallax relay call uses that exact `--effort` level. If effort was omitted, confirm each Parallax call uses the effort from the lens-based table (Effort selection for Parallax). State the effort level being applied.
 
 ### Division-of-labor diagnostic
 
@@ -274,17 +293,14 @@ Peer review adds a second dispatch wave after all initial agents return. Reviewe
 
 ### Reviewer Launcher Template
 
-```
-CRITICAL: You are a read-only leaf node. Do NOT invoke prism, relay, any skill, or spawn subagents. Ignore loaded skill descriptions for these.
+The reviewer launcher is stored in `templates/launcher-reviewer.tmpl`. Render it with `sed`, filling the slots `{{REVIEW_INDEX_PATH}}`, `{{PERSPECTIVE_COUNT}}`, `{{REVIEW_LENS_NAME}}`, and `{{REVIEW_LENS_DESC}}`:
 
-Your complete task is in three parts:
-1. REVIEW INDEX: Read the file at {REVIEW_INDEX_PATH} using the Read tool. It lists the original question's shared context file and all perspective files. You MUST read this file first.
-2. READ ALL PERSPECTIVES: Read every perspective file and the shared context file listed in the review index. Do not skip any. You need the full picture before answering.
-3. YOUR REVIEW LENS (below): Shapes what you emphasize in your critique.
-
-## Your Review Lens
-
-You are reviewing {N} anonymized perspectives that all answered the same question independently. Your review lens is **{REVIEW_LENS_NAME}** — you {one sentence: what this reviewer weighs more heavily}. Answer all three review questions from the review index. Be specific — cite perspectives by letter and quote key phrases.
+```bash
+sed -e 's|{{REVIEW_INDEX_PATH}}|/tmp/prism-abc123-review.md|g' \
+    -e 's|{{PERSPECTIVE_COUNT}}|4|g' \
+    -e 's|{{REVIEW_LENS_NAME}}|Strength-finder|g' \
+    -e 's|{{REVIEW_LENS_DESC}}|weigh which arguments are most well-supported and actionable|g' \
+    /path/to/templates/launcher-reviewer.tmpl
 ```
 
 ## Execution
@@ -293,11 +309,11 @@ You are reviewing {N} anonymized perspectives that all answered the same questio
 
 1. Build one canonical shared packet (Full Question + Context + Constraints).
 2. Write the shared packet to `/tmp/prism-<unique-id>.md` using the Write tool. Read it back to verify completeness.
-3. Compose all launcher prompts — each references the shared file path and assigns one lens.
-4. Run the pre-launch checks. Fix failures before launch.
+3. Render launcher prompts from the template files in `templates/` using `sed` substitution (see Launcher Templates). For each agent, fill only the lens-specific slots — the boilerplate is already in the template. Render Parallax launchers from `launcher-relay-codex.tmpl`; render subagent launchers from `launcher-subagent.tmpl`.
+4. Run the pre-launch checks (including the slot-completion test on rendered launchers). Fix failures before launch.
 5. Launch all dispatched agents concurrently (`run_in_background: true`). **Dispatch checklist:**
-   - Subagents: **Agent** tool with the launcher prompt.
-   - **Parallax (required unless parallax = `0`):** **Bash** tool to `relay`. Compose Parallax calls FIRST to prevent omission. Verify relay command shape, heredoc body, and Bash timeout (`timeout: 600000`) before launching.
+   - Subagents: **Agent** tool with the rendered launcher prompt.
+   - **Parallax (required unless parallax = `0`):** **Bash** tool to `relay` with the rendered relay launcher as the heredoc body. Compose Parallax calls FIRST to prevent omission. Verify relay command shape, heredoc body, and Bash timeout (`timeout: 600000`) before launching.
    - Confirm Parallax relay calls are present if parallax != `0`.
 
 Do not poll or sleep-loop — the system notifies you when agents finish.
@@ -318,7 +334,7 @@ Since you composed the prompts and chose the lenses, your self-review is not ful
 
 **Handling failures (after completion notification only):**
 
-- **Relay transport failure:** Read the `.log` sidecar, diagnose, fix, and retry once before escalating.
+- **Relay transport failure:** Check the Bash tool's output for diagnostic information, fix the invocation, and retry once before escalating. Do not read the `.log` sidecar — it is extremely long and token-heavy.
 - **Answer-quality failure** (empty, truncated, off-topic): Offer the user: (a) retry, (b) proceed with reduced perspectives, or (c) abort.
 - **Only these post-notification failures justify proceeding without Parallax.** "It's taking a long time" is never a failure.
 
