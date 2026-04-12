@@ -17,7 +17,6 @@ Prism was built by the process it teaches. Every revision — naming, protocol d
 - [Installation](#installation)
 - [Usage](#usage)
 - [Lenses](#lenses)
-- [Peer Review](#peer-review)
 - [Parallax (Cross-Model)](#parallax-cross-model)
 - [Contributors](#contributors)
 
@@ -40,16 +39,16 @@ Asking the same question twice gets you the same biases twice. Prism assigns eac
 ## How It Works
 
 ```
-┌───────────────────────────────────────────────────────┐
-│  User question + shared context                       │
-├───────────┬──────────┬──────────┬─────────────────────┤
-│   Self    │ Agent 1  │ Agent 2  │    Parallax         │
-│ Integra-  │ Lens: A  │ Lens: B  │    Lens: C          │
-│   tor     │          │          │   (cross-model      │
-│           │          │          │    via /relay)      │
-├───────────┴──────────┴──────────┴─────────────────────┤
-│  Synthesis: recommendation, confidence, dissent, gaps │
-└───────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│  User question + shared context                      │
+├───────────┬──────────┬──────────┬────────────────────┤
+│   Self    │ Agent 1  │ Agent 2  │    Parallax        │
+│ Integra-  │ Lens: A  │ Lens: B  │    Lens: C         │
+│   tor     │          │          │   (cross-model     │
+│           │          │          │    via /relay)     │
+├───────────┴──────────┴──────────┴────────────────────┤
+│  Synthesis: consensus, contested, unique, gaps       │
+└──────────────────────────────────────────────────────┘
 ```
 
 Self is the primary agent (the one you're talking to). It uses the **Integrator Lens** — weighing holistic coherence, feasibility, and alignment with your goals — and forms its own position while dispatched agents run in parallel.
@@ -59,10 +58,9 @@ Self is the primary agent (the one you're talking to). It uses the **Integrator 
 3. **Verify** — run pre-launch checks (redundancy, lens quality, count)
 4. **Launch all concurrently** — subagents + Parallax in parallel, then self-review
 5. **Wait for ALL** — no partial synthesis
-6. **Peer review** *(optional, `r` flag)* — anonymize outputs, dispatch reviewer agents to critique
-7. **Synthesize** — recommendation first, then confidence basis, key dissent, contingencies
+6. **Synthesize** — consensus, contested points, unique insights, blind spots, recommendation
 
-**Default: 4 perspectives** — self + 2 subagents + 1 Parallax via [Relay](https://github.com/chrisliu298/relay). Override counts with positional args (e.g., `prism 3 2 h` for 3 subagents, 2 Parallax, high effort).
+**Default: 4 perspectives** — self + 3 dispatched agents (2 subagents + 1 Parallax via [Relay](https://github.com/chrisliu298/relay)). Compact mode reduces to 2 dispatched when explicitly requested.
 
 ### Core rules
 
@@ -114,24 +112,22 @@ Or invoke directly with `prism` — also available to subagents.
 After all agents return, Prism synthesizes their findings:
 
 ```
+## Consensus
+All 4 agents agree the auth middleware should validate tokens at the
+gateway level, not per-service.
+
+## Contested
+Agents 1 and 3 recommend JWT; Agent 2 and Parallax prefer opaque tokens.
+Resolution: opaque tokens — the security audit timeline doesn't allow
+the additional attack surface of self-contained tokens.
+
+## Unique Insights
+Parallax (Codex) identified a timing side-channel in the token comparison
+on line 45 that no other agent caught.
+
 ## Recommendation
 Refactor to gateway-level validation with opaque tokens. Fix the timing
-side-channel on line 45. Add integration tests for the token refresh flow.
-
-## Confidence and basis
-High confidence. All 4 agents agree on gateway-level validation. The cross-model
-agent (Codex via Parallax) independently confirmed opaque tokens — stronger
-signal than same-model convergence alone.
-
-## Key dissent
-Agents 1 and 3 recommended JWT for simpler client integration. Weighed lower
-because the security audit timeline doesn't allow the additional attack surface
-of self-contained tokens.
-
-## Contingencies
-Revisit JWT if the audit deadline extends past Q3. The timing side-channel
-in token comparison (line 45) was caught only by Parallax — verify no similar
-patterns exist in adjacent auth code.
+side-channel. Add integration tests for the token refresh flow.
 ```
 
 ### What makes a good Prism task?
@@ -166,27 +162,12 @@ A lens is a **weighing posture**, not a task variant. Every agent answers the fu
 | Option comparison | Simplicity + Feasibility + Contrarian |
 | Writing / communication | Clarity + Audience + Contrarian |
 | Research / exploration | Breadth-Weighted + Depth-Weighted + Disconfirming |
-| Decision / strategy | First-Principles + Contrarian + Expansionist + Outsider + Executor |
 
 The skill includes pre-launch checks that prevent common mistakes:
 
 1. **Redundancy test** — ensures agents aren't dividing labor
 2. **Lens quality test** — ensures lenses are distinct weighing postures with at least one adversarial
 3. **Count test** — ensures the right number of agents are dispatched
-
----
-
-## Peer Review
-
-Enable with the `r` flag to add an anonymous review round after initial agents return:
-
-```
-prism r Should we migrate to a microservices architecture?
-```
-
-Two reviewer agents read anonymized outputs and answer three questions: which perspective is strongest, which has the biggest blind spot, and what did all perspectives miss. The "collective gap" question consistently surfaces the highest-value insights.
-
-Perspective files are created from existing on-disk artifacts via shell copy — no expensive re-emission through the model.
 
 ---
 
