@@ -65,7 +65,7 @@ Examples:
 
 Parallax is dispatched via `relay` to a **different model**. Invoke `relay` directly — not via a subagent that calls relay. Its value is model diversity: different training, different blind spots, different reasoning patterns. Assign it a lens that maximizes diversity (e.g., give Parallax a Contrarian or Disconfirming lens when subagents have Correctness and Simplicity).
 
-Before writing any Parallax relay prompt, read the target model's prompt guide in the relay skill's `references/` directory (e.g., `prompting-codex.md` for Codex). Do this every time, not just once.
+Before writing any Parallax relay prompt, read the target model's prompt guides in the relay skill's `references/` directory (e.g., `gpt.md` and `codex.md` for Codex). Do this every time, not just once.
 
 **Relay call syntax (exact):**
 
