@@ -109,25 +109,24 @@ Or invoke directly with `prism` — also available to subagents.
 
 ### Example output
 
-After all agents return, Prism synthesizes their findings:
+After all agents return, Prism synthesizes their findings into a short decision brief — answer first, actions second, rationale third, caveats last:
 
 ```
-## Consensus
-All 4 agents agree the auth middleware should validate tokens at the
-gateway level, not per-service.
+## Answer
+Refactor auth to gateway-level validation with opaque tokens.
 
-## Contested
-Agents 1 and 3 recommend JWT; Agent 2 and Parallax prefer opaque tokens.
-Resolution: opaque tokens — the security audit timeline doesn't allow
-the additional attack surface of self-contained tokens.
+## Do now
+1. Move token validation into gateway middleware.
+2. Replace the comparison on `auth/middleware.go:45` with a timing-safe check.
+3. Add integration tests for the token refresh flow.
 
-## Unique Insights
-Parallax (Codex) identified a timing side-channel in the token comparison
-on line 45 that no other agent caught.
+## Why
+- All lenses converged on gateway validation as the simpler trust boundary.
+- Opaque tokens chosen over JWT: the security audit timeline doesn't leave room to harden self-contained token handling.
+- Parallax (cross-model) caught the timing side-channel on line 45 — treat as a merge blocker.
 
-## Recommendation
-Refactor to gateway-level validation with opaque tokens. Fix the timing
-side-channel. Add integration tests for the token refresh flow.
+## Watch / Dissent
+JWT becomes preferable if offline cross-service verification becomes a hard requirement. That would change the token choice, not the gateway-level decision.
 ```
 
 ### What makes a good Prism task?

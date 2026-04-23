@@ -6,7 +6,6 @@ description: >-
   Use for non-trivial decisions, ambiguous tradeoffs, or high-stakes changes
   where a single perspective might miss something.
 user-invocable: true
-effort: max
 allowed-tools:
   - Agent
   - Bash
@@ -65,7 +64,7 @@ Examples:
 
 Parallax is dispatched via `relay` to a **different model**. Invoke `relay` directly — not via a subagent that calls relay. Its value is model diversity: different training, different blind spots, different reasoning patterns. Assign it a lens that maximizes diversity (e.g., give Parallax a Contrarian or Disconfirming lens when subagents have Correctness and Simplicity).
 
-Before writing any Parallax relay prompt, read the target model's prompt guides in the relay skill's `references/` directory (e.g., `gpt.md` and `codex.md` for Codex). Do this every time, not just once.
+Before writing any Parallax relay prompt, read the target model's prompt guides in `~/.claude/skills/relay/references/` (e.g., `gpt.md` and `codex.md` for Codex). Do this every time, not just once.
 
 **Relay call syntax (exact):**
 
@@ -192,17 +191,19 @@ Only the shared packet path and lens vary between launcher prompts. Agent names 
 
 Run these checks before launching. If any fails, rewrite and re-check.
 
-0. **Shared-file test:** Verify the shared context file was written and read back successfully. Confirm every rendered launcher references the same absolute file path. The shared file must be frozen before any dispatch.
+0. **Relay availability test (if parallax > 0):** Run `command -v relay` to check if the relay command is in PATH. This is the sole test — do not glob for relay files or references to determine availability. If the command exists, relay is available.
 
-1. **Slot-completion test:** After rendering all launcher prompts via `sed`, verify no `{{` placeholder tokens survive: `grep -c '{{' rendered_launcher`. Also confirm the shared packet path is absolute and identical across all rendered prompts, and that the anti-recursion warning is the first line of every launcher. For relay prompts, verify the XML skeleton is well-formed (`<goal>`, `<context>`, `<constraints>`, `<your_lens>` tags present).
+1. **Shared-file test:** Verify the shared context file was written and read back successfully. Confirm every rendered launcher references the same absolute file path. The shared file must be frozen before any dispatch.
 
-2. **Redundancy test:** Swap any two agents' lenses. If the prompts become incoherent, you have divided labor.
+2. **Slot-completion test:** After rendering all launcher prompts via `sed`, verify no `{{` placeholder tokens survive: `grep -c '{{' rendered_launcher`. Also confirm the shared packet path is absolute and identical across all rendered prompts, and that the anti-recursion warning is the first line of every launcher. For relay prompts, verify the XML skeleton is well-formed (`<goal>`, `<context>`, `<constraints>`, `<your_lens>` tags present).
 
-3. **Lens quality test:** Each lens name must be a weighing posture (1-3 words), never a task or role. For each lens, write one sentence explaining what unique axis it covers that no other lens does. If two lenses would produce the same emphasis, replace one. At least one lens must be structurally adversarial.
+3. **Redundancy test:** Swap any two agents' lenses. If the prompts become incoherent, you have divided labor.
 
-4. **Dispatch-shape test (CRITICAL):** Total dispatched agents (subagents + Parallax) must match the required count. Self does not count. Enumerate planned calls by type: Bash relay calls must equal the configured Parallax count (default 1); the rest are Agent calls. If the list contains zero relay calls and parallax != `0`, Parallax is missing — fix before launching.
+4. **Lens quality test:** Each lens name must be a weighing posture (1-3 words), never a task or role. For each lens, write one sentence explaining what unique axis it covers that no other lens does. If two lenses would produce the same emphasis, replace one. At least one lens must be structurally adversarial.
 
-5. **Effort test:** If the user specified an effort level, confirm every Parallax relay call uses that exact `--effort` level. If effort was omitted, confirm each Parallax call uses the effort from the lens-based table (Effort selection for Parallax). State the effort level being applied.
+5. **Dispatch-shape test (CRITICAL):** Total dispatched agents (subagents + Parallax) must match the required count. Self does not count. Enumerate planned calls by type: Bash relay calls must equal the configured Parallax count (default 1); the rest are Agent calls. If the list contains zero relay calls and parallax != `0`, Parallax is missing — fix before launching.
+
+6. **Effort test:** If the user specified an effort level, confirm every Parallax relay call uses that exact `--effort` level. If effort was omitted, confirm each Parallax call uses the effort from the lens-based table (Effort selection for Parallax). State the effort level being applied.
 
 ### Division-of-labor diagnostic
 
@@ -363,28 +364,52 @@ Skip this step if peer review was not requested.
 
 ### Step 4: Synthesize
 
-Lead with the answer. Organize findings by decision relevance, not agreement pattern.
+Write a decision brief, not a lens-by-lens report. The user should understand the recommendation and next action in seconds, not minutes.
 
-1. **Recommendation** — Your integrated conclusion, stated first. Answer the user's question directly and commit to a position before hedging. For deliverable questions (code, plan, document), this section IS the deliverable — produce it, don't just comment on agents' deliverables.
+**Default budget: ~150-300 words.** If you're writing more, you're hedging or scaffolding — compress. Deliverables are bounded by the artifact, not commentary.
 
-2. **Confidence and basis** — Why this recommendation over the alternatives. State your confidence level (high / moderate / low) and what drives it. Weight evidence by independence:
-   - Same-model convergence is signal but discounted — agents sharing a model share blind spots. "3 same-model agents agreed; the cross-model agent also confirmed" is stronger than "all 4 agreed" when 3 share a model.
-   - Where the Parallax (cross-model) agent confirmed or dissented, give this outsized weight — model diversity is the reason it exists.
-   - Single-agent points backed by strong reasoning can warrant high confidence; multi-agent consensus driven by shared training may not.
+**Default structure (in this order):**
 
-3. **Key dissent** — The strongest argument against the recommendation, stated as persuasively as the dissenter stated it. Do not strawman. Then explain specifically why you weighed it lower. If you cannot articulate why the dissent is wrong, downgrade your confidence level in section 2. If no meaningful dissent exists, skip this section — don't manufacture disagreement.
+1. **Answer** — 1-3 sentences stating the recommendation or conclusion directly. For deliverable questions (code, plan, document), the artifact is the answer — put it here, before rationale.
 
-4. **Contingencies** — Concrete, observable conditions under which the recommendation should be revisited. Not vague hedges ("if requirements change") but specific triggers ("if write volume exceeds 10k/s, the single-node assumption breaks"). If peer review ran, this section MUST incorporate the reviewers' "Collective gap" answers — these surface assumptions and gaps that reframe as actionable watch-items.
+2. **Do now** — 1-3 ranked actions, verb-first. Only immediate actions worth ranking. No "consider" or "maybe" unless tied to a concrete trigger.
 
-**Noise rejection:** Discard suggestions that add unrequested scope, are unsupported single-agent hedging, or restate context without adding analysis. Err toward a shorter, sharper synthesis.
+3. **Why** — 2-4 bullets of decisive reasoning. Fold confidence inline when it helps ("Moderate confidence — Parallax dissented on X"). Surface cross-model agreement or dissent here only when it materially changes confidence.
 
-**Category adaptation:** These categories are defaults for analysis-type questions. Adapt them to the task: for deliverable questions, the Recommendation section carries the artifact and the remaining sections provide design rationale. For simple questions with strong consensus, sections 3-4 may be empty — that is fine. The integrator should select the synthesis frame that best serves the user's decision, not rigidly fill every section.
+4. **Watch / Dissent** — 0-3 concrete triggers that would change the recommendation, or the single strongest dissent stated fairly with how you weighed it. Skip entirely if nothing is decision-relevant. Never manufacture caveats.
 
-The synthesis reflects your judgment as integrator — agents are advisors, not a voting bloc.
+**Mode adaptation (pick before writing):**
+
+- **Converged** (lenses + Parallax agree): Answer + Do now + short Why only. Skip Watch/Dissent.
+- **Material disagreement**: Add `Tradeoff` or `Decision point` after Why — name the two options, what each optimizes, why you chose. Dissent stays in Watch/Dissent.
+- **Cross-model break** (subagents converge, Parallax dissents): cap confidence at moderate. Lead Watch/Dissent with the Parallax argument — cross-model disagreement is the highest-signal finding and must not be buried.
+- **Deliverable**: artifact in Answer; Why becomes design rationale; Do now covers integration/review steps.
+
+**Banned in the main path:**
+
+- Per-lens attribution ("Agent A said…", "The Simplicity lens noted…"). Move to an optional `<details>Per-lens notes</details>` appendix at the very bottom only if the user asked, or if disagreement is deep enough to require lens-level audit.
+- Synthesis narration ("Weighing the perspectives…", "After considering the arguments…"). The recommendation carries the reasoning.
+- Generic contingencies ("if requirements change"). Only concrete, observable triggers.
+- Standalone `Confidence and basis` / `Key dissent` / `Contingencies` sections. Their content folds into Why and Watch/Dissent, and only when decision-relevant.
+
+**Cross-model weighting (internal — surfaces through Why):**
+
+- Same-model convergence is signal but discounted — shared training = shared blind spots.
+- Parallax (cross-model) confirmation or dissent carries outsized weight — model diversity is prism's entire point.
+- A single well-reasoned point can beat multi-agent consensus driven by shared priors.
+
+If you cannot articulate why dissent is wrong, downgrade confidence in Why rather than expanding dissent into a paragraph.
+
+The synthesis reflects your judgment as integrator — agents are advisors, not a voting bloc. Convergence is evidence, not a vote.
 
 ### Step 5: Grounding check
 
-Re-read the user's original question. Verify your synthesis answers it directly. If they asked for a deliverable, verify you produced one.
+Re-read the user's original question. Verify:
+
+- Your synthesis answers it directly. If they asked for a deliverable, you produced one.
+- The first section tells the user what to do.
+- No lens-by-lens summary appears outside an optional appendix.
+- Every retained dissent, caveat, or trigger changes a decision, confidence level, or next action.
 
 Optionally delete all Prism temp files: shared context (`/tmp/prism-<unique-id>.md`), perspective files (`/tmp/prism-<unique-id>-perspective-*.md`), and review index (`/tmp/prism-<unique-id>-review.md`).
 
