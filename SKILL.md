@@ -43,7 +43,7 @@ Override dispatch config with positional args before the question, or use natura
 **Positional:** `<subagents> <parallax> <effort> <r> <question>`
 - **subagents** — number of same-model subagents (default: 2)
 - **parallax** — number of Parallax agents (default: 1, `0` to opt out)
-- **effort** — Parallax reasoning effort: `n` none, `l` low, `m` medium, `h` high, `x` xhigh (default: per-lens)
+- **effort** — Parallax reasoning effort: `n` none, `l` low, `m` medium, `h` high, `x` xhigh. Default: per-lens. Use `n` only for latency-critical questions that do not need reasoning.
 - **r** — enable anonymous peer review round (default: off)
 
 Trailing args are optional — omitted values use defaults.
@@ -62,9 +62,9 @@ Examples:
 
 ### Parallax (cross-model agent)
 
-Parallax is dispatched via `relay` to a **different model**. Invoke `relay` directly — not via a subagent that calls relay. Its value is model diversity: different training, different blind spots, different reasoning patterns. Assign it a lens that maximizes diversity (e.g., give Parallax a Contrarian or Disconfirming lens when subagents have Correctness and Simplicity).
+Parallax is dispatched via `relay` to a **different model**. Invoke `relay` directly — not via a subagent that calls relay. Its value is model diversity: different training, different blind spots, different reasoning patterns. Assign it a lens that maximizes diversity (e.g., give Parallax an Adversarial or Disconfirming lens when subagents have Correctness and Simplicity).
 
-Before writing any Parallax relay prompt, read the target model's prompt guides in `~/.claude/skills/relay/references/` (e.g., `gpt.md` and `codex.md` for Codex). Do this every time, not just once.
+Before writing any Parallax relay prompt to Codex, read the prompt-engineer guides in `~/.claude/skills/prompt-engineer/references/` (specifically `gpt.md` and `codex.md`). If those symlinks are unavailable, use the repo copies at `agents/extensions/skills/prompt-engineer/references/`. Do this every time, not just once.
 
 **Relay call syntax (exact):**
 
@@ -74,11 +74,11 @@ relay call --name <slug> --effort <level> <<'BODY'
 BODY
 ```
 
-`--name` is required (lowercase slug, e.g., `prism-contrarian`). The heredoc body must not be empty. Do not pass model flags — the script handles model selection. For concurrency details (backgrounding, timeouts), follow the relay skill's Async / Parallel section for your platform.
+`--name` is required (lowercase slug, e.g., `prism-adversarial`). The heredoc body must not be empty. Do not pass model flags — the script handles model selection. For concurrency details (backgrounding, timeouts), follow the relay skill's Async / Parallel section for your platform.
 
 **Inspecting Parallax results:** Only read the `.res.md` response file. Never read the `.log` sidecar — it contains the peer's full stderr, which is extremely long and token-heavy. The relay script's Bash output already surfaces diagnostic information for failure cases.
 
-If `relay` is unavailable, replace Parallax with a subagent using a **structurally adversarial lens** (Contrarian, Falsification, Disconfirming).
+If `relay` is unavailable, replace Parallax with a subagent using a **structurally adversarial lens** (Adversarial, Falsification, Disconfirming).
 
 **Constraint leakage risk (CRITICAL):** Relay peers may recurse unless the anti-recursion rule is explicit, early, and repeated. You MUST:
 1. Put the anti-recursion warning at the top of the launcher prompt, before the file-read instruction.
@@ -92,7 +92,7 @@ Without these redundant prohibitions, the peer will treat the task as a fresh re
 
 | Lens type | `--effort` | Rationale |
 |-----------|-----------|-----------|
-| Adversarial, Contrarian, Falsification | `high` or `xhigh` | Needs deep reasoning to find subtle flaws |
+| Adversarial, Falsification, Disconfirming | `high` or `xhigh` | Needs deep reasoning to find subtle flaws |
 | Correctness, Risk, Causal | `high` | Benefits from thorough analysis |
 | Simplicity, Pragmatist, Feasibility, Breadth | `medium` | Pattern-matching; deeper reasoning adds latency without proportional quality gain |
 
@@ -177,10 +177,10 @@ sed -e 's|{{SHARED_PACKET_PATH}}|/tmp/prism-abc123.md|g' \
 
 # Relay example (render to variable, pass as heredoc)
 LAUNCHER=$(sed -e 's|{{SHARED_PACKET_PATH}}|/tmp/prism-abc123.md|g' \
-               -e 's|{{LENS_NAME}}|Contrarian|g' \
-               -e 's|{{LENS_DESC}}|weigh arguments against the emerging consensus|g' \
+               -e 's|{{LENS_NAME}}|Adversarial|g' \
+               -e 's|{{LENS_DESC}}|weigh the strongest attacks on the proposal|g' \
                /path/to/templates/launcher-relay-codex.tmpl)
-relay call --name prism-contrarian --effort high <<BODY
+relay call --name prism-adversarial --effort high <<BODY
 $LAUNCHER
 BODY
 ```
@@ -220,13 +220,13 @@ Choose lenses on **orthogonal tradeoff axes**. Before adding one, write one sent
 Starting points — every lens still answers the full question:
 
 - **Code review**: Correctness + Simplicity + Adversarial
-- **Architecture / design**: Evolutionary + Simplicity + Contrarian
-- **Implementation**: Correctness + Pragmatist + Contrarian
+- **Architecture / design**: Evolutionary + Simplicity + Adversarial
+- **Implementation**: Correctness + Pragmatist + Adversarial
 - **Diagnosis / root cause**: Causal + Falsification + Risk
-- **Option comparison**: Simplicity + Feasibility + Contrarian
-- **Writing / communication**: Clarity + Audience + Contrarian
+- **Option comparison**: Simplicity + Feasibility + Disconfirming
+- **Writing / communication**: Clarity + Audience + Adversarial
 - **Research / exploration**: Breadth-Weighted + Depth-Weighted + Disconfirming
-- **Decision / strategy**: First-Principles + Contrarian + Expansionist + Outsider + Executor
+- **Decision / strategy**: First-Principles + Disconfirming + Expansionist + Outsider + Executor
 
 ## Peer Review (Optional)
 

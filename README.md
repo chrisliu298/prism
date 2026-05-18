@@ -155,11 +155,11 @@ A lens is a **weighing posture**, not a task variant. Every agent answers the fu
 | Task type | Lenses |
 |-----------|--------|
 | Code review | Correctness + Simplicity + Adversarial |
-| Architecture / design | Evolutionary + Simplicity + Contrarian |
-| Implementation | Correctness + Pragmatist + Contrarian |
+| Architecture / design | Evolutionary + Simplicity + Adversarial |
+| Implementation | Correctness + Pragmatist + Adversarial |
 | Diagnosis / root cause | Causal + Falsification + Risk |
-| Option comparison | Simplicity + Feasibility + Contrarian |
-| Writing / communication | Clarity + Audience + Contrarian |
+| Option comparison | Simplicity + Feasibility + Disconfirming |
+| Writing / communication | Clarity + Audience + Adversarial |
 | Research / exploration | Breadth-Weighted + Depth-Weighted + Disconfirming |
 
 The skill includes pre-launch checks that prevent common mistakes:
@@ -180,11 +180,11 @@ When running from Claude Code, Parallax calls Codex via Relay. When running from
 
 ### Why model diversity matters
 
-Same-model agents share systematic biases from training. A cross-model perspective catches issues that no amount of same-model redundancy will surface. Assign Parallax a lens that maximizes diversity (e.g., if subagents have Correctness and Simplicity, give Parallax Contrarian or Disconfirming).
+Same-model agents share systematic biases from training. A cross-model perspective catches issues that no amount of same-model redundancy will surface. Assign Parallax a lens that maximizes diversity (e.g., if subagents have Correctness and Simplicity, give Parallax Adversarial or Disconfirming).
 
 ### Without Relay
 
-If Relay is not installed, Prism replaces Parallax with a same-model agent using a **structurally adversarial lens** (Contrarian, Falsification, Disconfirming). This partially compensates for missing model diversity. The user can also opt out of Parallax explicitly.
+If Relay is not installed, Prism replaces Parallax with a same-model agent using a **structurally adversarial lens** (Adversarial, Falsification, Disconfirming). This partially compensates for missing model diversity. The user can also opt out of Parallax explicitly.
 
 ---
 
