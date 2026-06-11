@@ -213,12 +213,14 @@ a long header may instead render as a two-column `Verdict | Confidence | …` ta
   ├── README.md                   ◄── you are here (the picture)
   ├── scripts/
   │   ├── prism-launch            dispatch engine (the subcommands above)
-  │   └── test-prism-launch.sh    126-test suite (no network — fake-relay for dispatch)
+  │   └── test-prism-launch.sh    130-test suite (no network — fake-relay for dispatch)
   └── templates/
       ├── launcher-subagent.tmpl       Claude subagent prompt (plain markdown)
       ├── launcher-relay-codex.tmpl    Codex / GPT  — <goal> style
       ├── launcher-relay-costar.tmpl   DeepSeek/MiMo/Grok — CO-STAR XML
-      └── shared-constraints.md        canonical read-only / anti-recursion block
+      ├── shared-constraints.md        canonical read-only / anti-recursion block
+      │                                (prepare injects this; never hand-copied)
+      └── shared-how-to-answer.md      canonical "## How to answer" block
                                        (prepare injects this; never hand-copied)
             ▲ reads templates + the registry
             │
