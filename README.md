@@ -1,4 +1,4 @@
-# Prism — visual overview
+# Prism
 
 > A skill that asks **the same complete question** to several independent agents,
 > each through a different **lens** (a weighing posture), then synthesizes their
