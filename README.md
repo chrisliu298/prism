@@ -1,195 +1,246 @@
-# Prism
+# Prism — visual overview
 
-**A skill for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [Codex](https://github.com/openai/codex) that strengthens any output through parallel multi-agent deliberation.**
-
-> *White light looks simple until it hits a prism — then you see every color was there all along. One question, many angles, nothing hidden.*
-
-Prism sends the same complete question to multiple independent agents, each answering from a different analytical lens. Convergence across diverse lenses is high-confidence signal; divergence surfaces tradeoffs that need explicit resolution.
-
-Invoke with `/prism` or ask your agent to "use prism" on any task.
-
-Prism was built by the process it teaches. Every revision — naming, protocol design, lens calibration, this README — was reviewed and improved by running `/prism` on itself: multiple agents deliberating from different lenses, then synthesizing into a stronger version. The skill sharpens itself.
-
-## Table of Contents
-
-- [Why](#why)
-- [How It Works](#how-it-works)
-- [Installation](#installation)
-- [Usage](#usage)
-- [Lenses](#lenses)
-- [Parallax (Cross-Model)](#parallax-cross-model)
-- [Contributors](#contributors)
+> A skill that asks **the same complete question** to several independent agents,
+> each through a different **lens** (a weighing posture), then synthesizes their
+> answers into one decision brief. Cross-model agreement is high-confidence signal;
+> cross-model dissent is the highest-signal finding.
+>
+> **`SKILL.md` is the authoritative spec** — this README is the picture. **Claude-only.**
 
 ---
 
-## Why
+## The idea — redundancy, not division of labor
 
-A single agent gives you one model's perspective. Prism gives you multiple:
+Every agent answers the **whole** question with the **full** context. Only the
+*lens* changes — what each one weighs most heavily. Nobody owns a "part."
 
-- **Catch blind spots** — independent agents examining the same problem from different angles find issues that any single perspective misses
-- **Surface tradeoffs** — disagreement between agents reveals decisions that need explicit resolution rather than implicit assumption
-- **Build confidence** — convergence across diverse lenses is stronger signal than a single agent's certainty
+```
+                        ┌──────────────────────────────┐
+                        │     ONE complete question    │
+                        └───────────────┬──────────────┘
+                                        │  same Q · same context · same scope
+        ┌──────────────┬────────────────┼────────────────┬──────────────┐
+        ▼              ▼                ▼                ▼              ▼
+    ┌────────┐     ┌────────┐       ┌────────┐       ┌────────┐     ┌────────┐
+    │ lens A │     │ lens B │       │ lens C │       │ lens D │     │ lens E │  …
+    │Adversa-│     │Correct-│       │Simpli- │       │First-  │     │Outsider│
+    │ rial   │     │ ness   │       │ city   │       │Princ.  │     │        │
+    └───┬────┘     └───┬────┘       └───┬────┘       └───┬────┘     └───┬────┘
+        └──────────────┴───────┬────────┴────────────────┴──────────────┘
+                               ▼
+                       ┌───────────────┐
+                       │  INTEGRATOR   │   weighs each on its merits, discards
+                       │  synthesizes  │   the weak, surfaces cross-model dissent
+                       └───────┬───────┘
+                               ▼
+                    ┌──────────────────────┐
+                    │  one decision brief  │  verdict · conf · n/total agree
+                    └──────────────────────┘
+```
 
-### Why not just ask twice?
-
-Asking the same question twice gets you the same biases twice. Prism assigns each agent a different **lens** — a weighing posture that changes what they emphasize, not what they skip. Every agent still answers the full question end-to-end.
+Convergence across diverse lenses = confidence. Divergence = a tradeoff to resolve.
 
 ---
 
-## How It Works
+## Architecture — three tiers + the relay bridge
 
 ```
-┌──────────────────────────────────────────────────────┐
-│  User question + shared context                      │
-├───────────┬──────────┬──────────┬────────────────────┤
-│   Self    │ Agent 1  │ Agent 2  │    Parallax        │
-│ Integra-  │ Lens: A  │ Lens: B  │    Lens: C         │
-│   tor     │          │          │   (cross-model     │
-│           │          │          │    via /relay)     │
-├───────────┴──────────┴──────────┴────────────────────┤
-│  Synthesis: consensus, contested, unique, gaps       │
-└──────────────────────────────────────────────────────┘
+┌───────────────────────────── Prism run (Claude-only) ─────────────────────────────┐
+│                                                                                   │
+│   ┌────────────────┐                                                              │
+│   │   INTEGRATOR   │  ← THIS Claude: composes the packet, assigns lenses,         │
+│   │  (no dispatch  │    dispatches everything, waits, then synthesizes.           │
+│   │   tool — you)  │    Also runs its OWN lens while the others work.             │
+│   └───────┬────────┘                                                              │
+│           │  dispatches all agents CONCURRENTLY (never serialized)                │
+│           │                                                                       │
+│     ┌─────┴────────────────────────────────┐                                      │
+│     ▼                                      ▼                                      │
+│  ┌──────────────┐                   ┌──────────────────┐                          │
+│  │  SUBAGENTS   │                   │     PARALLAX     │  cross-model, via `relay`│
+│  │  Claude × N  │                   │   (peers × N)    │                          │
+│  │  (Agent tool)│                   └─────────┬────────┘                          │
+│  └──────────────┘                             │ one backgrounded fan-out          │
+│   same model →                ┌──────┬────────┼────────┬─────────┐                │
+│   shared blind spots,         ▼      ▼        ▼        ▼         ▼                │
+│   so convergence here      Codex  Grok-Build Grok-Comp DeepSeek  MiMo             │
+│   is DISCOUNTED           (GPT5.5)  (xAI)    (xAI fast)(V4-Pro) (Xiaomi)          │
+│                              └────────┴────────┴────────┴─────────┘               │
+│                              independent lineages → catch the blind spots the     │
+│                              others share → dissent here carries OUTSIZED weight  │
+└───────────────────────────────────────────────────────────────────────────────────┘
+        Integrator + 1 subagent + 5 parallax peers  =  7 perspectives at the default (N=1)
 ```
 
-Self is the primary agent (the one you're talking to). It uses the **Integrator Lens** — weighing holistic coherence, feasibility, and alignment with your goals — and forms its own position while dispatched agents run in parallel.
-
-1. **Freeze context** — build one shared evidence packet with all information needed
-2. **Compose prompts** — word-for-word identical question and context across all agents, only the lens line differs
-3. **Verify** — run pre-launch checks (redundancy, lens quality, count)
-4. **Launch all concurrently** — subagents + Parallax in parallel, then self-review
-5. **Wait for ALL** — no partial synthesis
-6. **Synthesize** — consensus, contested points, unique insights, blind spots, recommendation
-
-**Default: 4 perspectives** — self + 3 dispatched agents (2 subagents + 1 Parallax via [Relay](https://github.com/chrisliu298/relay)). Compact mode reduces to 2 dispatched when explicitly requested.
-
-### Core rules
-
-These are load-bearing constraints — everything else (lens choices, agent count above the minimum, synthesis format) is flexible guidance:
-
-- **Redundancy, not division of labor** — every agent answers the full question end-to-end. If agents get different files, tasks, or deliverables, that is not Prism.
-- **Identical prompts** — the Full Question and Context sections must be word-for-word identical across all dispatched agents. Only the lens line differs.
+* **Subagents** are dispatched with the **Agent tool** (only Claude can).
+* **Parallax** peers are dispatched through **`relay`**, which runs each model in
+  the Claude Code harness (Codex via `codex exec`, Grok via its CLI, DeepSeek/MiMo
+  via `claude -p` with the weights swapped). A peer is a *full agent*, not an API call.
 
 ---
 
-## Installation
+## Invocation
 
-Clone into your agent's skills directory:
-
-**Claude Code:**
-
-```bash
-git clone https://github.com/chrisliu298/prism.git ~/.claude/skills/prism
 ```
+   prism  [N]  [m|xh]  <question>
+          │     │
+          │     └─ shared effort for the two tunable tiers (default m):
+          │          m  → Codex medium · Grok-Build medium
+          │          xh → Codex xhigh  · Grok-Build high
+          └─ how many of EACH of the six models (default 1 → 6 agents + self)
 
-**Codex:**
-
-```bash
-git clone https://github.com/chrisliu298/prism.git ~/.codex/skills/prism
-```
-
-### Recommended: install Relay for Parallax
-
-Prism's Parallax tier dispatches a cross-model agent via [Relay](https://github.com/chrisliu298/relay). Without Relay, Parallax falls back to a same-model adversarial agent — functional but with reduced model diversity.
-
-```bash
-git clone https://github.com/chrisliu298/relay.git ~/.claude/skills/relay
+   prism Why does X happen?              → 1 of each, medium  (the default)
+   prism 2 xh Which architecture?        → 2 of each, high tier
+   prism no deepseek, why X?             → natural-language deviations (exclude/count/effort)
 ```
 
 ---
 
-## Usage
+## How a run flows (and where `prism-launch` fits)
 
-Tell your agent to deliberate:
-
-> "Use prism to review my auth middleware changes"
-
-> "I need a prism analysis on whether to use SQL or NoSQL for this"
-
-Or invoke directly with `prism` — also available to subagents.
-
-### Example output
-
-After all agents return, Prism synthesizes their findings into a short decision brief — answer first, actions second, rationale third, caveats last:
+`prism-launch` (in `scripts/`) owns the mechanical half: it renders prompts from
+templates, validates the dispatch shape, and fans out the relay calls as ONE
+backgrounded process. The Integrator stays in the loop for the judgment.
 
 ```
-## Answer
-Refactor auth to gateway-level validation with opaque tokens.
+ YOU (Integrator)                    prism-launch                         agents
+ ════════════════                    ════════════                         ══════
 
-## Do now
-1. Move token validation into gateway middleware.
-2. Replace the comparison on `auth/middleware.go:45` with a timing-safe check.
-3. Add integration tests for the token refresh flow.
+ 1  write packet ──────────►  /tmp/prism-<id>.md          ## Full Question
+                                   └─ prepare injects ──►  ## Context
+                                      ## Constraints       (Constraints owned by
+                                      (verbatim, safe)      the script — not you)
 
-## Why
-- All lenses converged on gateway validation as the simpler trust boundary.
-- Opaque tokens chosen over JWT: the security audit timeline doesn't leave room to harden self-contained token handling.
-- Parallax (cross-model) caught the timing side-channel on line 45 — treat as a merge blocker.
+ 2  scaffold ──► fill ─────►  /tmp/prism-<id>.dispatch     one record per lens
+    (--preset pre-fills 6 lenses)        Type/To/Effort/Lens
 
-## Watch / Dissent
-JWT becomes preferable if offline cross-service verification becomes a hard requirement. That would change the token choice, not the gateway-level decision.
+ 3  prepare ───────────────►  ┌────────────────────────────────────────────┐
+                              │ validate · render launchers · write        │
+                              │ <id>-manifest.json (authoritative shape)   │
+                              └────────────────────────────────────────────┘
+       ◄── prints: ▸ the `parallax` command   ▸ "wait for K notifications"
+                   ▸ each subagent launcher's CONTENTS (paste straight in)
+
+ 4  launch — ALL at once (run_in_background):
+       ├─ Agent call × N ───────────────────────────────────────►  Claude subagents
+       │                                                               │
+       └─ parallax (bg) ─► ┌── relay ──► codex ───────┐                │
+                           ├── relay ──► grok-build   │                │
+                           ├── relay ──► grok-composer├─► <id>-result.json
+                           ├── relay ──► deepseek     │   + .relay/…res.md (×peer)
+                           └── relay ──► mimo ────────┘                │
+                                                                       ▼
+ 5  WAIT for every notification ░░░░░░░ HARD GATE ░░░░░ (no early synthesis)
+       ~K notifications: one per subagent + one for the whole parallax batch
+
+ 6  results ───────────────►  prism-launch results <manifest>
+       ◄── [done ] codex   prism-correctness   /…/….res.md
+           [ERROR] mimo     prism-outsider      (failed — retry)
+       └─ retry one peer:  parallax <manifest> --only mimo
+
+ 7  synthesize ─────────────►  verdict · conf · n/total agree [ · ⚠ dissent ]
+                               (read each .res.md; weigh; write the brief)
+
+ 8  clean ─────────────────►  prism-launch clean <id>     rm -f /tmp/prism-<id>*
 ```
 
-### What makes a good Prism task?
+---
 
-- Non-trivial decisions with real tradeoffs
-- Ambiguous problems where reasonable people disagree
-- High-stakes changes where a missed issue is costly
-- Architecture and design choices
-- Code reviews of complex changes
+## `prism-launch` subcommands
 
-### What to skip Prism for
+```
+  scaffold  [--n N] [--effort m|xh] [--preset TYPE] [--packet PATH]
+              └ print a fill-in dispatch skeleton (correct order + effort tokens).
+                --preset review|design|diagnosis|compare|research|decision|writing
+                pre-fills six lenses by task type (N=1).
 
-- Trivial lookups or deterministic transforms
-- Single-correct-answer tasks (what's the syntax for X?)
-- Tasks requiring parallel mutations of shared state
-- Tasks where the relevant context can't fit into one shared evidence packet for every agent
+  prepare   --dispatch <file>     (or --config <json>)
+              └ validate, render every launcher from templates, write the manifest,
+                inject ## Constraints into the packet if absent.
+
+  parallax  <manifest>            [--dry-run] [--only <peer>]
+              └ fan out all relay calls as ONE backgrounded process; --dry-run shows
+                the commands; --only retries a single peer and merges the result.
+
+  results   <manifest>            └ print each peer's status + .res.md path; non-zero
+                                    exit if any failed.
+
+  clean     <id | packet-path>    └ rm -f /tmp/prism-<id>*  (guarded against globs).
+```
 
 ---
 
-## Lenses
+## Run artifacts (all under one `/tmp/prism-<id>` prefix)
 
-A lens is a **weighing posture**, not a task variant. Every agent answers the full question — the lens changes what they emphasize.
-
-### Suggested lenses by task type
-
-| Task type | Lenses |
-|-----------|--------|
-| Code review | Correctness + Simplicity + Adversarial |
-| Architecture / design | Evolutionary + Simplicity + Adversarial |
-| Implementation | Correctness + Pragmatist + Adversarial |
-| Diagnosis / root cause | Causal + Falsification + Risk |
-| Option comparison | Simplicity + Feasibility + Disconfirming |
-| Writing / communication | Clarity + Audience + Adversarial |
-| Research / exploration | Breadth-Weighted + Depth-Weighted + Disconfirming |
-
-The skill includes pre-launch checks that prevent common mistakes:
-
-1. **Redundancy test** — ensures agents aren't dividing labor
-2. **Lens quality test** — ensures lenses are distinct weighing postures with at least one adversarial
-3. **Count test** — ensures the right number of agents are dispatched
+```
+  /tmp/prism-<id>.md                       shared packet  (Q + Context + Constraints)
+  /tmp/prism-<id>.dispatch                 line-oriented lens records (what you author)
+  /tmp/prism-<id>-config.normalized.json   compiled config (audit trail)
+  /tmp/prism-<id>-manifest.json            authoritative dispatch shape  ◄─ parallax/results read this
+  /tmp/prism-<id>-launcher-*.md            rendered prompts (one per agent)
+  /tmp/prism-<id>-result.json              per-peer status + .res.md paths
+  .relay/<ts>-<pid>-prism-<lens>.res.md    each peer's response   ◄─ READ THESE
+  .relay/<…>.log  /  …-out-prism-*.log     peer stderr — NEVER read (token-heavy)
+```
 
 ---
 
-## Parallax (Cross-Model)
+## The synthesis output
 
-Parallax is the cross-model tier of Prism. It dispatches one agent via [Relay](https://github.com/chrisliu298/relay) to a **different model** — different training, different reasoning patterns, different blind spots.
+Skim-first: the reader grasps the recommendation, confidence, and any cross-model
+dissent in seconds, then reads on only for the reasoning.
 
-### How it works
+```
+  Pick Option B (event-driven) · conf: Moderate · 4/6 agree · ⚠ DeepSeek+MiMo dissent
+  Claude ✓  Codex ✓  DeepSeek ⚠  MiMo ⚠   → 2 independent lineages dissent, same direction
+  Dissent — DeepSeek+MiMo: shared state needed for atomic txns; bounded by the spike gate.
+  Why
+  • Removes the shared-state bottleneck behind 3/5 recent incidents
+  • Migration is incremental, not big-bang (Codex confirmed)
+  Do now: spike B's hot path → kill the A RFC → freeze schema
+```
 
-When running from Claude Code, Parallax calls Codex via Relay. When running from Codex, Parallax calls Claude Code. The Parallax agent receives the same full question and context as every other agent — only the lens differs.
-
-### Why model diversity matters
-
-Same-model agents share systematic biases from training. A cross-model perspective catches issues that no amount of same-model redundancy will surface. Assign Parallax a lens that maximizes diversity (e.g., if subagents have Correctness and Simplicity, give Parallax Adversarial or Disconfirming).
-
-### Without Relay
-
-If Relay is not installed, Prism replaces Parallax with a same-model agent using a **structurally adversarial lens** (Adversarial, Falsification, Disconfirming). This partially compensates for missing model diversity. The user can also opt out of Parallax explicitly.
+The **model-tier tally** (by lineage, not lens) appears only on a cross-model break;
+a long header may instead render as a two-column `Verdict | Confidence | …` table.
 
 ---
 
-## Contributors
+## What feeds the machinery
 
-- [@chrisliu298](https://github.com/chrisliu298)
-- **Claude Code** — protocol design and synthesis framework
-- **Codex** — lens calibration and cross-model validation
+```
+  prism/
+  ├── SKILL.md                    ◄── authoritative rules (read this to operate)
+  ├── README.md                   ◄── you are here (the picture)
+  ├── scripts/
+  │   ├── prism-launch            dispatch engine (the subcommands above)
+  │   └── test-prism-launch.sh    126-test suite (no network — fake-relay for dispatch)
+  └── templates/
+      ├── launcher-subagent.tmpl       Claude subagent prompt (plain markdown)
+      ├── launcher-relay-codex.tmpl    Codex / GPT  — <goal> style
+      ├── launcher-relay-costar.tmpl   DeepSeek/MiMo/Grok — CO-STAR XML
+      └── shared-constraints.md        canonical read-only / anti-recursion block
+                                       (prepare injects this; never hand-copied)
+            ▲ reads templates + the registry
+            │
+  relay/peers.json   ◄── single source of truth: which peers exist, their effort
+                         knobs, transports, and launcher-template style. `relay`
+                         and `prism-launch` both read it — add a peer in one stanza.
+```
+
+---
+
+## Load-bearing guarantees (do not relax — see SKILL.md)
+
+```
+  ┌─ Redundancy, not division ─ every agent gets the whole question.
+  ├─ Hard completion gate ───── synthesize only after EVERY agent returns.
+  ├─ No recursion ───────────── a dispatched peer must never re-enter prism/relay;
+  │                             the anti-recursion block is injected verbatim + the
+  │                             RELAY_PEER guard refuses a nested launch.
+  ├─ Read-only leaf agents ──── peers/subagents produce analysis only (one .res.md write).
+  └─ Effort vocabulary ──────── Codex medium|xhigh · Grok-Build medium|high, registry-enforced.
+```
+
+---
+
+*When in doubt, `SKILL.md` is authoritative. This README just shows the shape.*

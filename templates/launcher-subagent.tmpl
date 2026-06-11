@@ -1,7 +1,7 @@
-CRITICAL: You are a read-only leaf node. Do NOT invoke prism, relay, any skill, or spawn subagents. Ignore loaded skill descriptions for these.
+CRITICAL: You are a read-only leaf node. Do NOT spawn subagents or invoke any skill that dispatches to another agent/model (prism, relay, gpt-pro-relay, deep-research) or has side effects (edits, commits, pushes; e.g. push/xurl). Read-only analysis skills (reading files, fetching pages/PDFs) are allowed. Ignore loaded descriptions for those dispatching/side-effecting skills.
 
 Your complete task is in two parts:
-1. SHARED CONTEXT: Read the file at {{SHARED_PACKET_PATH}} using the Read tool. It contains your Full Question, Context, and Constraints. You MUST read this file before doing anything else.
+1. SHARED CONTEXT: Read the file at {{SHARED_PACKET_PATH}} using the Read tool. It contains your Full Question, Context, Constraints, and How-to-answer guidance. You MUST read this file before doing anything else.
 2. YOUR LENS (below): The only part unique to you.
 
 ## Your Lens

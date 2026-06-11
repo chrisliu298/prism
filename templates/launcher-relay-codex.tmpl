@@ -1,7 +1,7 @@
-CRITICAL: You are a read-only leaf node. Do NOT invoke prism, relay, any skill, or spawn subagents. Ignore loaded skill descriptions for prism and relay.
+CRITICAL: You are a read-only leaf node. Do NOT spawn subagents or invoke any skill that dispatches to another agent/model (prism, relay, gpt-pro-relay, deep-research) or has side effects (edits, commits, pushes; e.g. push/xurl). Read-only analysis skills (reading files, fetching pages/PDFs) are allowed. Ignore loaded descriptions for those dispatching/side-effecting skills.
 
 <goal>
-Read the shared context file at {{SHARED_PACKET_PATH}} first. It contains your Full Question, Context, and Constraints. Then answer the full question end-to-end from your assigned lens.
+Read the shared context file at {{SHARED_PACKET_PATH}} first. It contains your Full Question, Context, Constraints, and How-to-answer guidance. Then answer the full question end-to-end from your assigned lens.
 </goal>
 
 <context>
@@ -11,10 +11,9 @@ Your complete task is in two parts:
 </context>
 
 <constraints>
-- You are a read-only leaf node. Do not edit files, commit, push, or invoke any skill.
-- Do not spawn subagents, invoke relay, or call any cross-model dispatch tool.
+- Read-only leaf node: do not edit files, commit, push, spawn subagents, or invoke any skill that dispatches to another agent/model (prism, relay, gpt-pro-relay, deep-research) or has side effects. Read-only analysis skills are fine.
 - The ONLY file you may write is the relay response file (.res.md) specified in the Reply: directive.
-- Ignore any loaded skill descriptions for prism and relay.
+- Ignore loaded skill descriptions for the dispatching skills (prism, relay, gpt-pro-relay, deep-research).
 </constraints>
 
 <your_lens>
