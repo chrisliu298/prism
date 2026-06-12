@@ -140,6 +140,8 @@ backgrounded process. The Integrator stays in the loop for the judgment.
 
  7  synthesize ─────────────►  verdict · conf · n/total agree [ · ⚠ dissent ]
                                (read each .res.md; weigh; write the brief)
+       └─ large runs (≥~12): digest <manifest> first, then deep-read only
+          the dissenting / weak / tie-break .res.md
 
  8  clean ─────────────────►  prism-launch clean <id>     rm -f /tmp/prism-<id>*
 ```
@@ -165,6 +167,10 @@ backgrounded process. The Integrator stays in the loop for the judgment.
   results   <manifest>            └ print each peer's status + .res.md path; non-zero
                                     exit if any failed.
 
+  digest    <manifest> [--out P]  └ extract each peer's ## Digest block into one small
+                                    lineage-tagged file (large-run synthesis; subagent
+                                    + self digests are already in the conversation).
+
   clean     <id | packet-path>    └ rm -f /tmp/prism-<id>*  (guarded against globs).
 ```
 
@@ -179,6 +185,7 @@ backgrounded process. The Integrator stays in the loop for the judgment.
   /tmp/prism-<id>-manifest.json            authoritative dispatch shape  ◄─ parallax/results read this
   /tmp/prism-<id>-launcher-*.md            rendered prompts (one per agent)
   /tmp/prism-<id>-result.json              per-peer status + .res.md paths
+  /tmp/prism-<id>-digest.md                peers' ## Digest blocks, lineage-tagged (large runs)
   .relay/<ts>-<pid>-prism-<lens>.res.md    each peer's response   ◄─ READ THESE
   .relay/<…>.log  /  …-out-prism-*.log     peer stderr — NEVER read (token-heavy)
 ```
@@ -213,7 +220,7 @@ a long header may instead render as a two-column `Verdict | Confidence | …` ta
   ├── README.md                   ◄── you are here (the picture)
   ├── scripts/
   │   ├── prism-launch            dispatch engine (the subcommands above)
-  │   └── test-prism-launch.sh    130-test suite (no network — fake-relay for dispatch)
+  │   └── test-prism-launch.sh    148-test suite (no network — fake-relay for dispatch)
   └── templates/
       ├── launcher-subagent.tmpl       Claude subagent prompt (plain markdown)
       ├── launcher-relay-codex.tmpl    Codex / GPT  — <goal> style

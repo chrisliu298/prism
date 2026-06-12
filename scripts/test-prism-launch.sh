@@ -419,6 +419,87 @@ printf '{"id":"prism-nores","shared_packet":"/tmp/prism-nores.md"}' > /tmp/prism
 expect_err "results errors when no result file exists yet" "$LAUNCH" results /tmp/prism-nores-manifest.json
 "$LAUNCH" clean pp >/dev/null; rm -f /tmp/prism-nores*
 
+echo "== digest: extract ## Digest blocks (lineage-tagged, compaction-only) =="
+DGP="$TMP/prism-dg.md"            # packet path only used to derive sibling artifact paths
+DGMAN="$TMP/prism-dg-manifest.json"; DGRES="$TMP/prism-dg-result.json"; DGOUT="$TMP/prism-dg-digest.md"
+RA="$TMP/dg-a.res.md"; RB="$TMP/dg-b.res.md"
+cat > "$RA" <<'RES'
+---
+from: codex
+---
+Long analysis body here.
+More reasoning.
+
+## Digest
+- Position: pick option B
+- Key reasons: removes shared state
+- Dissent/caveat: none
+- Changes if: p99 > 50ms
+RES
+printf -- '---\nfrom: grok-composer\n---\nBody with no digest section at all.\n' > "$RB"
+printf '{"id":"prism-dg","shared_packet":"%s"}' "$DGP" > "$DGMAN"
+printf '{"id":"prism-dg","expected":3,"succeeded":2,"failed":1,"results":[{"to":"codex","name":"prism-alpha","status":"done","res":"%s","log":"/tmp/a.log"},{"to":"grok-composer","name":"prism-beta","status":"done","res":"%s","log":"/tmp/b.log"},{"to":"mimo","name":"prism-gamma","status":"error","res":null,"log":"/tmp/c.log"}]}' "$RA" "$RB" > "$DGRES"
+expect_ok "digest succeeds on a finished run" "$LAUNCH" digest "$DGMAN"
+[ -f "$DGOUT" ] && ok "digest writes <id>-digest.md by default" || bad "digest output file"
+grep -q 'Position: pick option B' "$DGOUT" && ok "digest extracts the ## Digest block body" || bad "digest extracts block"
+! grep -q 'Long analysis body here' "$DGOUT" && ok "digest omits the full answer body (compaction)" || bad "digest leaked full body"
+grep -q 'lineage: grok' "$DGOUT"  && ok "digest collapses grok-composer to the grok lineage" || bad "digest grok lineage"
+grep -q 'lineage: codex' "$DGOUT" && ok "digest tags the codex lineage" || bad "digest codex lineage"
+grep -q 'block found'  "$DGOUT" && ok "digest flags a peer with no ## Digest block" || bad "digest missing-block note"
+grep -q 'peer failed'  "$DGOUT" && ok "digest flags a failed peer" || bad "digest failed-peer note"
+grep -qF "$RA" "$DGOUT" && ok "digest cites the full .res.md path for deep-reads" || bad "digest cites res path"
+"$LAUNCH" digest "$DGMAN" --out "$TMP/dg-custom.md" >/dev/null 2>&1
+[ -f "$TMP/dg-custom.md" ] && ok "digest honors --out" || bad "digest --out"
+printf '{"id":"prism-dgx","shared_packet":"%s"}' "$TMP/prism-dgx.md" > "$TMP/prism-dgx-manifest.json"
+expect_err "digest errors when no result file exists yet" "$LAUNCH" digest "$TMP/prism-dgx-manifest.json"
+: > "$TMP/prism-dgm-result.json"; printf '{"id":"prism-dgm","shared_packet":"%s"}' "$TMP/prism-dgm.md" > "$TMP/prism-dgm-manifest.json"
+expect_err "digest rejects an empty result.json" "$LAUNCH" digest "$TMP/prism-dgm-manifest.json"
+
+echo "== digest: hardened extraction edge cases (fence/colon/nested/multiple/%) =="
+DHP="$TMP/prism-dh.md"; DHMAN="$TMP/prism-dh-manifest.json"; DHRES="$TMP/prism-dh-result.json"; DHOUT="$TMP/prism-dh-digest.md"
+# fenced whole digest + trailing prose: must NOT leak the trailing prose (degrades to a miss)
+RC="$TMP/dh-fenced.res.md"; cat > "$RC" <<'RES'
+Intro body.
+
+```
+## Digest
+- Position: fenced position only
+```
+
+LEAKED-TRAILING-PROSE-MUST-NOT-APPEAR
+RES
+# `## Digest:` with a trailing colon must still extract
+RD="$TMP/dh-colon.res.md"; printf '## Digest:\n- Position: colon-variant-captured\n- Changes if: none\n' > "$RD"
+# a deeper `###` inside the digest must NOT truncate it
+RN="$TMP/dh-nested.res.md"; printf '## Digest\n- Position: nested-test\n### sub-note\n- Changes if: still-here-after-subheading\n' > "$RN"
+# two `## Digest` headings: the LAST one wins (template says "end your answer with")
+RM="$TMP/dh-multi.res.md"; printf 'Draft:\n## Digest\n- Position: FIRST-draft-should-lose\nRevised. Final:\n## Digest\n- Position: SECOND-final-should-win\n' > "$RM"
+# `%` and backtick in the body survive (printf '%s' regression guard)
+RP="$TMP/dh-percent.res.md"; printf '## Digest\n- Position: 100%% coverage with `jq` parsing\n- Changes if: none\n' > "$RP"
+printf '{"id":"prism-dh","shared_packet":"%s"}' "$DHP" > "$DHMAN"
+jq -n --arg rc "$RC" --arg rd "$RD" --arg rn "$RN" --arg rm "$RM" --arg rp "$RP" \
+  '{id:"prism-dh",expected:5,succeeded:5,failed:0,results:[
+    {to:"codex",name:"prism-fenced",status:"done",res:$rc,log:"/tmp/x.log"},
+    {to:"deepseek",name:"prism-colon",status:"done",res:$rd,log:"/tmp/x.log"},
+    {to:"mimo",name:"prism-nested",status:"done",res:$rn,log:"/tmp/x.log"},
+    {to:"grok-composer",name:"prism-multi",status:"done",res:$rm,log:"/tmp/x.log"},
+    {to:"grok-build",name:"prism-percent",status:"done",res:$rp,log:"/tmp/x.log"}
+  ]}' > "$DHRES"
+"$LAUNCH" digest "$DHMAN" >/dev/null 2>&1
+! grep -q 'LEAKED-TRAILING-PROSE' "$DHOUT" && ok "fenced digest does not leak trailing prose (degrades to a miss)" || bad "fenced digest leaked trailing prose"
+grep -q 'colon-variant-captured'        "$DHOUT" && ok "extracts a '## Digest:' colon-variant heading" || bad "colon-variant missed"
+grep -q 'still-here-after-subheading'   "$DHOUT" && ok "a nested ### does not truncate the digest" || bad "nested ### truncated the digest"
+grep -q 'SECOND-final-should-win'       "$DHOUT" && ! grep -q 'FIRST-draft-should-lose' "$DHOUT" && ok "multiple ## Digest: the last one wins" || bad "multiple-digest last-wins"
+grep -q '100% coverage with `jq`'       "$DHOUT" && ok "percent + backtick in body survive (printf '%s' safe)" || bad "percent/backtick body mangled"
+
+echo "== prepare: clears a stale -digest.md on re-run =="
+make_packet "$TMP/prism-stale.md"
+printf 'Shared-Packet: %s\n\nType: subagent\nLens: Xstale\nLens-Desc: y\n' "$TMP/prism-stale.md" > "$TMP/stale.dispatch"
+"$LAUNCH" prepare --dispatch "$TMP/stale.dispatch" >/dev/null 2>&1
+touch "$TMP/prism-stale-digest.md"
+"$LAUNCH" prepare --dispatch "$TMP/stale.dispatch" >/dev/null 2>&1
+[ ! -e "$TMP/prism-stale-digest.md" ] && ok "re-prepare clears a stale -digest.md" || bad "stale -digest.md not cleared on re-prepare"
+
 echo "== subcommand --help =="
 "$LAUNCH" scaffold --help 2>/dev/null | grep -q 'Usage:' && ok "scaffold --help prints usage" || bad "scaffold --help"
 

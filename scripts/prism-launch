@@ -220,7 +220,7 @@ cmd_prepare() {
   # prepare cannot leave an authoritative-looking manifest/result behind. Never
   # delete the normalized config the current --dispatch run just generated (it is
   # $config here, read by the jq pass below) — only a stale one from a prior run.
-  rm -f "$manifest" "${run_base}-result.json"
+  rm -f "$manifest" "${run_base}-result.json" "${run_base}-digest.md"
   [ "$config" = "${run_base}-config.normalized.json" ] || rm -f "${run_base}-config.normalized.json"
 
   # Single jq pass: validate structure/enums/effort/injection/dup-lenses, then
@@ -783,6 +783,99 @@ cmd_results() {
   [ "$(jq '[.results[]|select(.status!="done")]|length' "$result")" -eq 0 ]
 }
 
+# ── digest ─────────────────────────────────────────────────────────────────
+
+# Collapse two Grok tiers to one lineage; every other peer is its own lineage.
+# Mirrors the SKILL.md tally rule (grok-build + grok-composer = one Grok lineage).
+digest_lineage_of() {
+  case "$1" in
+    grok-build|grok-composer) echo "grok" ;;
+    *)                        echo "$1"   ;;
+  esac
+}
+
+# Extract each parallax peer's "## Digest" block from its .res.md into one small,
+# lineage-tagged file, so the orchestrator can synthesize from compact digests on a
+# large run and deep-read only the full .res.md it needs. Subagent + self digests
+# already live in the orchestrator conversation, so they are not extracted here.
+# Reads <id>-result.json (written by parallax); writes <id>-digest.md. Compaction
+# only — it never decides; failures/missing-digests are surfaced, not fatal.
+cmd_digest() {
+  local manifest="" out=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --out) [ $# -ge 2 ] || die "digest: --out requires a value"; out="$2"; shift 2 ;;
+      -*)    die "digest: unknown flag: $1" ;;
+      *)     [ -z "$manifest" ] || die "digest: unexpected argument: $1"; manifest="$1"; shift ;;
+    esac
+  done
+  [ -n "$manifest" ] || die "digest: <manifest.json> required"
+  [ -f "$manifest" ] || die "digest: manifest not found: $manifest"
+  command -v jq >/dev/null 2>&1 || die "digest: jq not found in PATH"
+  jq -e . "$manifest" >/dev/null 2>&1 || die "digest: manifest is not valid JSON: $manifest"
+
+  local packet base result id n
+  packet=$(jq -r '.shared_packet' "$manifest")
+  base="${packet%.md}"; result="${base}-result.json"
+  id=$(jq -r '.id // "?"' "$manifest")
+  [ -f "$result" ] || die "digest: no result file yet ($result) — has the parallax fan finished?"
+  [ -s "$result" ] && jq -e '(.results | type) == "array"' "$result" >/dev/null 2>&1 \
+    || die "digest: result file is empty or malformed: $result"
+  [ -n "$out" ] || out="${base}-digest.md"
+  n=$(jq '.results | length' "$result")
+
+  local i to name res status lineage block extracted=0 warns=0
+  {
+    printf '# Prism digest — %s\n' "$id"
+    printf '# %s parallax peer(s). Subagent + self digests are in the orchestrator conversation, not here.\n' "$n"
+    printf '# Deep-read a peer'\''s full .res.md when its digest dissents, looks weak, or is the tie-breaker.\n\n'
+    i=0
+    while [ "$i" -lt "$n" ]; do
+      to=$(jq -r ".results[$i].to" "$result")
+      name=$(jq -r ".results[$i].name" "$result")
+      status=$(jq -r ".results[$i].status" "$result")
+      res=$(jq -r ".results[$i].res // \"\"" "$result")
+      lineage=$(digest_lineage_of "$to")
+      printf '## %s · %s  (lineage: %s)\n' "$to" "$name" "$lineage"
+      if [ "$status" != "done" ] || [ -z "$res" ]; then
+        printf '_peer failed — no response (see %s)_\n\n' "$result"; warns=$((warns + 1))
+      elif [ ! -f "$res" ]; then
+        printf '_response file missing: %s_\n\n' "$res"; warns=$((warns + 1))
+      else
+        # Capture the LAST top-level "## Digest" block, ignoring anything inside
+        # ``` code fences — so a fenced template example can't false-match, and a
+        # fenced digest degrades to a clean miss (→ deep-read) rather than leaking
+        # trailing prose into the digest. Starts only at an H2 `## Digest` (with an
+        # optional trailing :/. decoration), stops at the next H1/H2 heading so a
+        # deeper `###` line inside the digest doesn't truncate it. BSD-awk-safe
+        # (no interval `{1,2}` or gawk `\>` — uses `#[#]?`).
+        block=$(awk '
+          /^```/                                                 { infence = !infence; next }
+          infence                                                { next }
+          tolower($0) ~ /^##[[:space:]]+digest[[:space:].:-]*$/   { cap=1; buf=""; next }
+          cap && /^#[#]?[[:space:]]/                              { cap=0 }
+          cap                                                     { buf = buf $0 "\n" }
+          END                                                    { printf "%s", buf }
+        ' "$res")
+        if [ -n "$(printf '%s' "$block" | tr -d '[:space:]')" ]; then
+          printf '%s\n\n_full: %s_\n\n' "$block" "$res"; extracted=$((extracted + 1))
+        else
+          printf '_no `## Digest` block found — read the full response: %s_\n\n' "$res"; warns=$((warns + 1))
+        fi
+      fi
+      i=$((i + 1))
+    done
+  } > "$out"
+
+  # Exit 0 even at 0/n — digest is compaction-only (surfaced, not fatal); the
+  # orchestrator reads the summary and falls back to the full .res.md. But when
+  # nothing extracted, name the likely cause so the empty digest isn't a mystery.
+  [ "$extracted" -gt 0 ] || [ "$n" -eq 0 ] || \
+    echo "prism-launch: note — 0 digests extracted; peers may predate the ## Digest requirement (re-run prepare on a fresh packet) or fenced their digest. Read the full .res.md files." >&2
+  echo "prism-launch: wrote digest for '$id' → $out"
+  echo "summary: $extracted/$n peer digest(s) extracted, $warns warning(s)"
+}
+
 # ── main ─────────────────────────────────────────────────────────────────────
 
 cmd_help() {
@@ -796,6 +889,7 @@ Usage:
   prism-launch parallax <manifest.json> [--dry-run]
   prism-launch parallax <manifest.json> --only <peer-name>   # re-dispatch ONE peer (retry), merge into result
   prism-launch results  <manifest.json>              # print each peer's status + .res.md path
+  prism-launch digest   <manifest.json> [--out <path>]  # extract peers' ## Digest blocks into one small file
   prism-launch clean    <run-id | packet-path>       # rm -f /tmp/prism-<id>*
   prism-launch --help | --version  ·  prism-launch <subcommand> --help
 
@@ -810,6 +904,9 @@ prepare:   validate the dispatch/config, render all launchers from templates, wr
 parallax:  fan out every relay call as ONE backgrounded process, wait for all, write a structured
            result. Run with run_in_background: true. --only <name> retries a single failed peer.
 results:   print each parallax peer's status + .res.md path from the run's result.json.
+digest:    extract each parallax peer's "## Digest" block (lineage-tagged) into one small
+           <id>-digest.md, so synthesis at large N reads compact digests + deep-reads only
+           the .res.md it needs. Subagent + self digests are already in the conversation.
 clean:     remove every temp artifact for a run (/tmp/prism-<id>*).
 
 Env:
@@ -829,6 +926,7 @@ case "$sub" in
   parallax) cmd_parallax "$@" ;;
   scaffold) cmd_scaffold "$@" ;;
   results)  cmd_results  "$@" ;;
+  digest)   cmd_digest   "$@" ;;
   clean)    cmd_clean    "$@" ;;
-  *)        die "unknown subcommand: $sub (use prepare|parallax|scaffold|results|clean)" ;;
+  *)        die "unknown subcommand: $sub (use prepare|parallax|scaffold|results|digest|clean)" ;;
 esac

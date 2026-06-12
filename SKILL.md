@@ -390,7 +390,7 @@ Invoke `prism-launch` by its absolute path `~/.claude/skills/prism/scripts/prism
 2. **Scaffold the dispatch:** `PL scaffold --preset <task-type> --packet /tmp/prism-<id>.md` (or `--n 1 --effort m|xh` for blank slots). Edit the lenses, Write to `/tmp/prism-<id>.dispatch`.
 3. **Prepare:** `PL prepare --dispatch /tmp/prism-<id>.dispatch` — prints the parallax command, the expected notification count, and each subagent launcher's contents.
 4. **Launch concurrently:** one backgrounded `PL parallax <manifest>` Bash call + one Agent call per subagent (paste the inline launcher contents). Then wait for every notification.
-5. **Collect + synthesize:** `PL results <manifest>` → Read each `.res.md` → synthesize. Optionally `PL clean <id>`.
+5. **Collect + synthesize:** `PL results <manifest>` → Read each `.res.md` → synthesize. **Large runs (≥~12 dispatched):** run `PL digest <manifest>` first, read the small lineage-tagged digest, then deep-read only the dissenting/weak/tie-break `.res.md`. Optionally `PL clean <id>`.
 
 The numbered steps below are the authoritative detail; the Quick Start is the shape.
 
@@ -444,6 +444,8 @@ Scan each agent's output for recursion indicators: mentions of "dispatching," "s
 Write a skim-first, verdict-led synthesis, not a lens-by-lens report — the reader should grasp the recommendation, confidence, and any cross-model dissent in seconds. The verdict line carries those three; the body carries the reasoning.
 
 **Default budget: ~100-150 words in the visible main path.** If you're writing more, you're hedging or scaffolding — compress. Deliverables are bounded by the artifact; the optional appendix is uncounted.
+
+**Large runs — read digests first, deep-read selectively.** Every agent ends its answer with a `## Digest` block (the canonical How-to-answer template requires it). At ~12+ dispatched (N≥2), reading every full `.res.md` into context degrades synthesis. Instead: run `~/.claude/skills/prism/scripts/prism-launch digest <manifest>` to extract each parallax peer's digest into one small lineage-tagged file; read that plus each subagent's digest (already in your conversation) to form the verdict and by-lineage tally, then deep-read the full `.res.md` **only** for peers whose digest dissents, looks weak/off-topic, or is the tie-breaker. The digest **compacts inputs, it never decides** — you still compute the verdict, confidence, and tally yourself, and you must read a dissenter's raw words before capping confidence on it. For a small run (N=1) read the full outputs directly; the digest step adds nothing.
 
 **Default skeleton — the verdict line is fixed and always first; the body below it flexes by mode (see Mode adaptation):**
 
