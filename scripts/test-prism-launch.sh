@@ -88,15 +88,15 @@ MAN4="$TMP/prism-run4-manifest.json"
 DRY4=$("$LAUNCH" parallax "$MAN4" --dry-run 2>/dev/null)
 [ "$(echo "$DRY4" | grep -c 'relay call --to')" = "3" ] && ok "three-tier dry-run lists exactly 3 relay calls" || bad "three-tier dry-run lists 3 relay calls"
 
-echo "== prepare: default five-tier shape + canonical display order =="
+echo "== prepare: default six-tier shape + canonical display order =="
 PKT5="$TMP/prism-run5.md"; make_packet "$PKT5"
 CFG5="$TMP/run5-config.json"
 # tiers deliberately scrambled in the config; the dispatch-shape display must still be canonical
-jq -n --arg p "$PKT5" '{shared_packet:$p,parallax:[{to:"mimo",name:"a",lens:"L1",lens_desc:"d"},{to:"codex",name:"b",effort:"medium",lens:"L2",lens_desc:"d"},{to:"deepseek",name:"c",lens:"L3",lens_desc:"d"},{to:"grok-composer",name:"d",lens:"L4",lens_desc:"d"},{to:"grok-build",name:"e",effort:"high",lens:"L5",lens_desc:"d"}],subagents:[{lens:"L6",lens_desc:"d"}]}' > "$CFG5"
+jq -n --arg p "$PKT5" '{shared_packet:$p,parallax:[{to:"mimo",name:"a",lens:"L1",lens_desc:"d"},{to:"codex",name:"b",effort:"medium",lens:"L2",lens_desc:"d"},{to:"glm",name:"f",lens:"L7",lens_desc:"d"},{to:"deepseek",name:"c",lens:"L3",lens_desc:"d"},{to:"grok-composer",name:"d",lens:"L4",lens_desc:"d"},{to:"grok-build",name:"e",effort:"high",lens:"L5",lens_desc:"d"}],subagents:[{lens:"L6",lens_desc:"d"}]}' > "$CFG5"
 OUT5=$("$LAUNCH" prepare --config "$CFG5" 2>/dev/null)
 MAN5="$TMP/prism-run5-manifest.json"
-[ "$(jq -r '.counts.parallax_total' "$MAN5" 2>/dev/null)" = "5" ] && ok "default five-tier counts: parallax_total=5" || bad "five-tier counts"
-echo "$OUT5" | grep -q 'dispatch shape: subagents=1 codex=1 grok-build=1 grok-composer=1 deepseek=1 mimo=1' && ok "dispatch shape printed in canonical order (not alphabetical)" || bad "dispatch shape canonical order"
+[ "$(jq -r '.counts.parallax_total' "$MAN5" 2>/dev/null)" = "6" ] && ok "default six-tier counts: parallax_total=6" || bad "six-tier counts"
+echo "$OUT5" | grep -q 'dispatch shape: subagents=1 codex=1 grok-build=1 grok-composer=1 deepseek=1 mimo=1 glm=1' && ok "dispatch shape printed in canonical order (not alphabetical)" || bad "dispatch shape canonical order"
 
 echo "== prepare + dry-run: grok parallax tiers (effort vs no-knob) =="
 PKTG="$TMP/prism-grok.md"; make_packet "$PKTG"
@@ -310,22 +310,23 @@ expect_ok "accepts a subagents-only dispatch (empty parallax accumulator)" "$LAU
 [ "$(jq -r '.counts.parallax_total' "$TMP/prism-runz-manifest.json" 2>/dev/null)" = "0" ] && ok "dispatch: empty parallax accumulator -> parallax_total 0" || bad "dispatch: empty parallax -> 0"
 
 echo "== scaffold: symmetric dispatch skeleton =="
-SC=$("$LAUNCH" scaffold --n 1 --effort m --packet /tmp/prism-sc.md)
-[ "$(printf '%s\n' "$SC" | grep -c '^Type:')" = "6" ] && ok "scaffold --n 1 emits 6 records" || bad "scaffold n=1 record count"
+SC=$("$LAUNCH" scaffold --n 1 --packet /tmp/prism-sc.md)
+[ "$(printf '%s\n' "$SC" | grep -c '^Type:')" = "7" ] && ok "scaffold --n 1 emits 7 records" || bad "scaffold n=1 record count"
 printf '%s\n' "$SC" | grep -q '^Shared-Packet: /tmp/prism-sc.md' && ok "scaffold honors --packet" || bad "scaffold --packet"
-printf '%s\n' "$SC" | grep -q '^To: codex'    && printf '%s\n' "$SC" | grep -q '^To: mimo' && ok "scaffold lists all five parallax tiers" || bad "scaffold tiers"
-SCX=$("$LAUNCH" scaffold --n 2 --effort xh)
-[ "$(printf '%s\n' "$SCX" | grep -c '^Type:')" = "12" ] && ok "scaffold --n 2 emits 12 records" || bad "scaffold n=2 record count"
-[ "$(printf '%s\n' "$SCX" | grep -c '^Effort: x')" = "2" ] && [ "$(printf '%s\n' "$SCX" | grep -c '^Effort: h')" = "2" ] && ok "scaffold --effort xh -> codex x, grok-build h" || bad "scaffold xh effort mapping"
-expect_err "scaffold rejects a bad --effort" "$LAUNCH" scaffold --effort high2
+printf '%s\n' "$SC" | grep -q '^To: codex' && printf '%s\n' "$SC" | grep -q '^To: mimo' && printf '%s\n' "$SC" | grep -q '^To: glm' && ok "scaffold lists all six parallax tiers" || bad "scaffold tiers"
+SCX=$("$LAUNCH" scaffold --n 2)
+[ "$(printf '%s\n' "$SCX" | grep -c '^Type:')" = "14" ] && ok "scaffold --n 2 emits 14 records" || bad "scaffold n=2 record count"
+# effort is fixed — scaffold always emits Codex x (xhigh) + Grok Build h (high), N of each
+[ "$(printf '%s\n' "$SCX" | grep -c '^Effort: x')" = "2" ] && [ "$(printf '%s\n' "$SCX" | grep -c '^Effort: h')" = "2" ] && ok "scaffold emits fixed codex x + grok-build h" || bad "scaffold fixed effort"
+expect_err "scaffold rejects --effort (no longer an option)" "$LAUNCH" scaffold --effort h
 # a filled scaffold round-trips through prepare
 make_packet /tmp/prism-scrt.md
-"$LAUNCH" scaffold --n 1 --effort m --packet /tmp/prism-scrt.md \
-  | sed 's/^Lens: FILL-1$/Lens: L1/;s/^Lens: FILL-2$/Lens: L2/;s/^Lens: FILL-3$/Lens: L3/;s/^Lens: FILL-4$/Lens: L4/;s/^Lens: FILL-5$/Lens: L5/;s/^Lens: FILL-6$/Lens: L6/;s/^Lens-Desc: FILL$/Lens-Desc: weigh it/' > /tmp/prism-scrt.dispatch
+"$LAUNCH" scaffold --n 1 --packet /tmp/prism-scrt.md \
+  | sed 's/^Lens: FILL-1$/Lens: L1/;s/^Lens: FILL-2$/Lens: L2/;s/^Lens: FILL-3$/Lens: L3/;s/^Lens: FILL-4$/Lens: L4/;s/^Lens: FILL-5$/Lens: L5/;s/^Lens: FILL-6$/Lens: L6/;s/^Lens: FILL-7$/Lens: L7/;s/^Lens-Desc: FILL$/Lens-Desc: weigh it/' > /tmp/prism-scrt.dispatch
 expect_ok "a filled scaffold round-trips through prepare" "$LAUNCH" prepare --dispatch /tmp/prism-scrt.dispatch
 # a half-filled scaffold (leftover FILL-<n> lens) must be rejected, not dispatched
 make_packet /tmp/prism-schalf.md
-"$LAUNCH" scaffold --n 1 --effort m --packet /tmp/prism-schalf.md \
+"$LAUNCH" scaffold --n 1 --packet /tmp/prism-schalf.md \
   | sed 's/^Lens-Desc: FILL$/Lens-Desc: weigh it/' > /tmp/prism-schalf.dispatch   # descs filled, lens names left as FILL-<n>
 expect_err "prepare rejects a half-filled scaffold (leftover FILL placeholder)" "$LAUNCH" prepare --dispatch /tmp/prism-schalf.dispatch
 rm -f /tmp/prism-sc* /tmp/prism-scrt* /tmp/prism-schalf*
@@ -354,7 +355,7 @@ touch /tmp/prism-mtest.md /tmp/prism-mtest-manifest.json /tmp/prism-mtest-launch
 echo "== scaffold --preset: pre-filled, dispatchable lenses =="
 SCP=$("$LAUNCH" scaffold --preset review --packet /tmp/prism-pp.md)
 [ "$(printf '%s\n' "$SCP" | grep -c FILL)" = "0" ] && ok "scaffold --preset leaves no FILL placeholder" || bad "preset has FILL"
-[ "$(printf '%s\n' "$SCP" | grep -c '^Type:')" = "6" ] && ok "scaffold --preset emits 6 records (N=1)" || bad "preset record count"
+[ "$(printf '%s\n' "$SCP" | grep -c '^Type:')" = "7" ] && ok "scaffold --preset emits 7 records (N=1)" || bad "preset record count"
 printf '%s\n' "$SCP" | grep -q '^Lens: Adversarial' && ok "preset 'review' puts a heavy lens on slot 1" || bad "preset slot-1 lens"
 expect_err "scaffold rejects an unknown --preset" "$LAUNCH" scaffold --preset nope
 expect_err "scaffold rejects --preset with --n > 1" "$LAUNCH" scaffold --n 2 --preset review
@@ -499,6 +500,133 @@ printf 'Shared-Packet: %s\n\nType: subagent\nLens: Xstale\nLens-Desc: y\n' "$TMP
 touch "$TMP/prism-stale-digest.md"
 "$LAUNCH" prepare --dispatch "$TMP/stale.dispatch" >/dev/null 2>&1
 [ ! -e "$TMP/prism-stale-digest.md" ] && ok "re-prepare clears a stale -digest.md" || bad "stale -digest.md not cleared on re-prepare"
+
+echo "== gptpro: compose-in-prepare (config .references is authoritative) =="
+GPK="$TMP/prism-gp.md"; printf '## Full Question\nFuse the thing.\n\n## Context\nSome context.\n' > "$GPK"
+REF1="$TMP/ref-one.md";  printf 'REF-ONE-CONTENT-MARKER\nl2\n' > "$REF1"
+REF2="$TMP/ref-two.txt"; printf 'REF-TWO-CONTENT-MARKER\n'     > "$REF2"
+GCFG="$TMP/gp-config.json"
+jq -n --arg p "$GPK" --arg r1 "$REF1" --arg r2 "$REF2" \
+  '{shared_packet:$p, references:[$r1,$r2],
+    parallax:[{to:"codex",name:"adv",effort:"medium",lens:"Adversarial",lens_desc:"attack it"}],
+    subagents:[{lens:"Simplicity",lens_desc:"fewest parts"}],
+    gptpro:[{lens:"Deep-Reasoning",lens_desc:"reason deeply",posture:"deep-reasoning"}]}' > "$GCFG"
+GOUT=$("$LAUNCH" prepare --config "$GCFG" 2>/dev/null)
+GMAN="$TMP/prism-gp-manifest.json"
+[ -f "$GMAN" ] && ok "gptpro: manifest written" || bad "gptpro: manifest written"
+[ "$(jq -r '.counts.gptpro' "$GMAN" 2>/dev/null)" = "1" ] && ok "gptpro: counts.gptpro = 1" || bad "gptpro count"
+[ "$(jq -r '.counts.dispatched_total' "$GMAN" 2>/dev/null)" = "2" ] && ok "gptpro: dispatched_total excludes gpt-pro (subagent+parallax=2)" || bad "gptpro dispatched_total"
+[ "$(jq -r '.gptpro[0].slug' "$GMAN" 2>/dev/null)" = "deep-reasoning" ] && ok "gptpro: lens slugified" || bad "gptpro slug"
+[ "$(jq -r '.gptpro[0].posture' "$GMAN" 2>/dev/null)" = "deep-reasoning" ] && ok "gptpro: posture carried" || bad "gptpro posture"
+GLAUNCH=$(jq -r '.gptpro[0].launcher' "$GMAN")
+[ -f "$GLAUNCH" ] && ok "gptpro: launcher composed" || bad "gptpro launcher composed"
+head -1 "$GLAUNCH" | grep -q '^CRITICAL:' && ok "gptpro: launcher starts with CRITICAL guard" || bad "gptpro CRITICAL"
+! grep -q '{{' "$GLAUNCH" && ok "gptpro: no surviving {{slots}}" || bad "gptpro slots"
+grep -q 'Deep-Reasoning' "$GLAUNCH" && ok "gptpro: lens name substituted" || bad "gptpro lens sub"
+grep -q 'Fuse the thing.' "$GLAUNCH" && ok "gptpro: frozen packet inlined verbatim" || bad "gptpro packet inlined"
+{ grep -q 'REF-ONE-CONTENT-MARKER' "$GLAUNCH" && grep -q 'REF-TWO-CONTENT-MARKER' "$GLAUNCH"; } && ok "gptpro: reference CONTENTS inlined (not paths)" || bad "gptpro refs inlined"
+grep -qF "### $REF1" "$GLAUNCH" && ok "gptpro: each ref under its ### path header" || bad "gptpro ref header"
+{ grep -q 'Grounding external facts' "$GLAUNCH" && grep -q '## Calibration' "$GLAUNCH"; } && ok "gptpro: grounding + calibration appended" || bad "gptpro grounding/calibration"
+echo "$GOUT" | grep -q 'gptpro=1' && ok "gptpro: dispatch shape shows gptpro=1" || bad "gptpro dispatch shape"
+echo "$GOUT" | grep -q 'one per gpt-pro lens' && ok "gptpro: notification count includes gpt-pro" || bad "gptpro notif count"
+echo "$GOUT" | grep -qF "gpt-pro < $GLAUNCH" && ok "gptpro: prints the exact backgrounded launch command" || bad "gptpro launch line"
+
+echo "== gptpro: --dispatch front-end + Reference keys + packet fallback =="
+GPKB="$TMP/prism-gpb.md"
+printf '## Full Question\nq\n\n## Context\nc\n\n### Reference Materials\n- %s\n' "$REF1" > "$GPKB"
+GDISP="$TMP/gpb.dispatch"
+printf 'Shared-Packet: %s\n\nType: gptpro\nLens: Falsification\nLens-Desc: try to break it\n' "$GPKB" > "$GDISP"
+expect_ok "gptpro: --dispatch with packet ### Reference Materials fallback" "$LAUNCH" prepare --dispatch "$GDISP"
+GMANB="$TMP/prism-gpb-manifest.json"
+GLB=$(jq -r '.gptpro[0].launcher' "$GMANB")
+grep -q 'REF-ONE-CONTENT-MARKER' "$GLB" && ok "gptpro: packet ### Reference Materials list resolved + inlined" || bad "gptpro packet-list fallback"
+# explicit Reference: keys win and may include a 'none' opt-out (own packet -> own manifest)
+GPKB2="$TMP/prism-gpb2.md"
+printf '## Full Question\nq\n\n## Context\nc\n\n### Reference Materials\n- %s\n' "$REF1" > "$GPKB2"
+GDISP2="$TMP/gpb2.dispatch"
+printf 'Shared-Packet: %s\nReference: none\n\nType: gptpro\nLens: Falsification\nLens-Desc: d\n' "$GPKB2" > "$GDISP2"
+expect_ok "gptpro: 'Reference: none' inlines only the packet" "$LAUNCH" prepare --dispatch "$GDISP2"
+GLB2=$(jq -r '.gptpro[0].launcher' "$TMP/prism-gpb2-manifest.json")
+! grep -q 'REF-ONE-CONTENT-MARKER' "$GLB2" && ok "gptpro: 'Reference: none' skips the packet list (no refs inlined)" || bad "gptpro Reference none"
+
+echo "== gptpro: fail-closed validation =="
+# gptpro lens but NO reference source at all
+GPKN="$TMP/prism-gpn.md"; printf '## Full Question\nq\n\n## Context\nc\n' > "$GPKN"
+GDN="$TMP/gpn.dispatch"; printf 'Shared-Packet: %s\n\nType: gptpro\nLens: X\nLens-Desc: y\n' "$GPKN" > "$GDN"
+expect_err "gptpro: no Reference keys and no ### Reference Materials -> fail-closed" "$LAUNCH" prepare --dispatch "$GDN"
+# directory reference
+GCD="$TMP/gpd.json"; jq -n --arg p "$GPKN" --arg d "$TMP" '{shared_packet:$p,references:[$d],parallax:[],subagents:[],gptpro:[{lens:"X",lens_desc:"y"}]}' > "$GCD"
+expect_err "gptpro: a directory Reference -> fail-closed" "$LAUNCH" prepare --config "$GCD"
+# missing reference
+GCM="$TMP/gpm.json"; jq -n --arg p "$GPKN" --arg m "$TMP/does-not-exist.md" '{shared_packet:$p,references:[$m],parallax:[],subagents:[],gptpro:[{lens:"X",lens_desc:"y"}]}' > "$GCM"
+expect_err "gptpro: a missing Reference -> fail-closed" "$LAUNCH" prepare --config "$GCM"
+# relative reference
+GCR="$TMP/gpr.json"; jq -n --arg p "$GPKN" '{shared_packet:$p,references:["relative/ref.md"],parallax:[],subagents:[],gptpro:[{lens:"X",lens_desc:"y"}]}' > "$GCR"
+expect_err "gptpro: a relative Reference -> fail-closed" "$LAUNCH" prepare --config "$GCR"
+# whitespace in reference path
+GCW="$TMP/gpw.json"; jq -n --arg p "$GPKN" --arg w "$TMP/has space.md" '{shared_packet:$p,references:[$w],parallax:[],subagents:[],gptpro:[{lens:"X",lens_desc:"y"}]}' > "$GCW"
+expect_err "gptpro: a whitespace Reference path -> fail-closed" "$LAUNCH" prepare --config "$GCW"
+# oversize reference (> 1MB cap)
+BIGREF="$TMP/big.ref"; head -c 1100000 /dev/zero | tr '\0' 'x' > "$BIGREF"
+GCB="$TMP/gpbig.json"; jq -n --arg p "$GPKN" --arg b "$BIGREF" '{shared_packet:$p,references:[$b],parallax:[],subagents:[],gptpro:[{lens:"X",lens_desc:"y"}]}' > "$GCB"
+expect_err "gptpro: an over-1MB Reference -> fail-closed before launch" "$LAUNCH" prepare --config "$GCB"
+# To/Name/Effort on a gptpro dispatch record
+GDE="$TMP/gpe.dispatch"; printf 'Shared-Packet: %s\nReference: none\n\nType: gptpro\nEffort: x\nLens: X\nLens-Desc: y\n' "$GPKB" > "$GDE"
+expect_err "gptpro: rejects Effort on a gptpro record (no effort knob)" "$LAUNCH" prepare --dispatch "$GDE"
+# bad posture
+GCP="$TMP/gpp.json"; jq -n --arg p "$GPKB" '{shared_packet:$p,references:[],parallax:[],subagents:[],gptpro:[{lens:"X",lens_desc:"y",posture:"wrong"}]}' > "$GCP"
+expect_err "gptpro: rejects an invalid posture" "$LAUNCH" prepare --config "$GCP"
+# duplicate lens across the run (subagent + gptpro share a name)
+GCDUP="$TMP/gpdup.json"; jq -n --arg p "$GPKB" '{shared_packet:$p,references:[],parallax:[],subagents:[{lens:"Same",lens_desc:"d"}],gptpro:[{lens:"Same",lens_desc:"d"}]}' > "$GCDUP"
+expect_err "gptpro: rejects a lens name shared with a subagent" "$LAUNCH" prepare --config "$GCDUP"
+
+echo "== gptpro: gptpro-only run + results/digest/clean lanes =="
+GPKO="$TMP/prism-gpo.md"; printf '## Full Question\nq\n\n## Context\nc\n' > "$GPKO"
+GCO="$TMP/gpo.json"; jq -n --arg p "$GPKO" '{shared_packet:$p,references:[],parallax:[],subagents:[],gptpro:[{lens:"Deep",lens_desc:"d"}]}' > "$GCO"
+expect_ok "gptpro: a gptpro-only run prepares (no parallax/subagents)" "$LAUNCH" prepare --config "$GCO"
+GMANO="$TMP/prism-gpo-manifest.json"
+GRES=$(jq -r '.gptpro[0].res' "$GMANO"); GLOG=$(jq -r '.gptpro[0].log' "$GMANO")
+# pending: no .res.md yet, a .log with a run_id -> results surfaces it, exits non-zero
+printf 'gpt-pro: run_id=ask-20260618-abc transport=ssh mode=submit\n' > "$GLOG"
+expect_err "gptpro: results exits non-zero while a lens is pending" "$LAUNCH" results "$GMANO"
+# results exits non-zero while pending, so capture first (pipefail would mask the grep)
+RUNOUT=$("$LAUNCH" results "$GMANO" 2>/dev/null || true)
+printf '%s\n' "$RUNOUT" | grep -q 'run_id=ask-20260618-abc' && ok "gptpro: results surfaces the pending run_id for reattach" || bad "gptpro results run_id"
+# completed: .res.md present -> results exits 0, digest extracts the block tagged gpt-pro
+cat > "$GRES" <<'RES'
+Body of the gpt-pro answer.
+
+## Digest
+- Position: GPTPRO-DIGEST-MARKER
+- Changes if: none
+RES
+expect_ok "gptpro: results exits 0 once the lens .res.md is present" "$LAUNCH" results "$GMANO"
+"$LAUNCH" digest "$GMANO" >/dev/null 2>&1
+GDGO="$TMP/prism-gpo-digest.md"
+grep -q 'GPTPRO-DIGEST-MARKER' "$GDGO" && ok "gptpro: digest extracts the gpt-pro ## Digest block" || bad "gptpro digest extract"
+grep -q 'lineage: gpt-pro' "$GDGO" && ok "gptpro: digest tags the gpt-pro lineage" || bad "gptpro digest lineage"
+# phantom-parallax guard: a stale/unrelated result.json must NOT add phantom peers to a gptpro-only digest
+printf '{"id":"prism-gpo","expected":1,"succeeded":1,"failed":0,"results":[{"to":"codex","name":"prism-ghost","status":"done","res":"/tmp/ghost.res.md","log":"/tmp/g.log"}]}' > "$TMP/prism-gpo-result.json"
+"$LAUNCH" digest "$GMANO" >/dev/null 2>&1
+{ ! grep -q 'prism-ghost' "$GDGO" && ! grep -q 'lineage: codex' "$GDGO"; } && ok "gptpro: gptpro-only digest ignores a stale result.json (no phantom peers)" || bad "gptpro digest phantom peers"
+grep -q 'GPTPRO-DIGEST-MARKER' "$GDGO" && ok "gptpro: gptpro-only digest still emits the gpt-pro lens despite a stale result.json" || bad "gptpro digest dropped gpt-pro lane"
+rm -f "$TMP/prism-gpo-result.json"
+# clean guard: a .log with a run_id but NO .res.md is a possibly-live worker -> refuse.
+# clean only operates on /tmp/prism-* (its safety prefix), so use a real /tmp run here.
+GPKC=/tmp/prism-gpcg.md; printf '## Full Question\nq\n\n## Context\nc\n' > "$GPKC"
+GCC="$TMP/gpc.json"; jq -n --arg p "$GPKC" '{shared_packet:$p,references:[],parallax:[],subagents:[],gptpro:[{lens:"Deep",lens_desc:"d"}]}' > "$GCC"
+"$LAUNCH" prepare --config "$GCC" >/dev/null 2>&1
+GLOGC=$(jq -r '.gptpro[0].log' /tmp/prism-gpcg-manifest.json)
+printf 'gpt-pro: run_id=ask-live-xyz transport=ssh\n' > "$GLOGC"
+expect_err "gptpro: clean refuses a possibly-live run (run_id, no .res.md)" "$LAUNCH" clean /tmp/prism-gpcg.md
+expect_ok "gptpro: clean --force overrides the live-run guard" "$LAUNCH" clean /tmp/prism-gpcg.md --force
+# a completed lens (.res.md present) is safe to clean without --force (re-create packet first)
+printf '## Full Question\nq\n\n## Context\nc\n' > "$GPKC"
+"$LAUNCH" prepare --config "$GCC" >/dev/null 2>&1
+GLOGC=$(jq -r '.gptpro[0].log' /tmp/prism-gpcg-manifest.json); GRESC=$(jq -r '.gptpro[0].res' /tmp/prism-gpcg-manifest.json)
+printf 'gpt-pro: run_id=ask-done-xyz transport=ssh\n' > "$GLOGC"; printf 'answer\n' > "$GRESC"
+expect_ok "gptpro: clean allows a completed run (run_id + non-empty .res.md)" "$LAUNCH" clean /tmp/prism-gpcg.md
+rm -f /tmp/prism-gpcg*
 
 echo "== subcommand --help =="
 "$LAUNCH" scaffold --help 2>/dev/null | grep -q 'Usage:' && ok "scaffold --help prints usage" || bad "scaffold --help"

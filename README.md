@@ -61,20 +61,20 @@ Convergence across diverse lenses = confidence. Divergence = a tradeoff to resol
 │  │  Claude × N  │                   │   (peers × N)    │                          │
 │  │  (Agent tool)│                   └─────────┬────────┘                          │
 │  └──────────────┘                             │ one backgrounded fan-out          │
-│   same model →                ┌──────┬────────┼────────┬─────────┐                │
-│   shared blind spots,         ▼      ▼        ▼        ▼         ▼                │
-│   so convergence here      Codex  Grok-Build Grok-Comp DeepSeek  MiMo             │
-│   is DISCOUNTED           (GPT5.5)  (xAI)    (xAI fast)(V4-Pro) (Xiaomi)          │
-│                              └────────┴────────┴────────┴─────────┘               │
+│   same model →          ┌─────┬──────────┬─────────┼────────┬────┐                │
+│   shared blind spots,   ▼     ▼          ▼         ▼        ▼    ▼                │
+│   so convergence here   Codex Grok-Build Grok-Comp DeepSeek MiMo GLM              │
+│   is DISCOUNTED        (GPT5.5) (xAI) (xAI fast) (V4-Pro) (Xiaomi) (z.ai)         │
+│                         └─────┴──────────┴─────────┴────────┴────┘                │
 │                              independent lineages → catch the blind spots the     │
 │                              others share → dissent here carries OUTSIZED weight  │
 └───────────────────────────────────────────────────────────────────────────────────┘
-        Integrator + 1 subagent + 5 parallax peers  =  7 perspectives at the default (N=1)
+        Integrator + 1 subagent + 6 parallax peers  =  8 perspectives at the default (N=1)
 ```
 
 * **Subagents** are dispatched with the **Agent tool** (only Claude can).
 * **Parallax** peers are dispatched through **`relay`**, which runs each model in
-  the Claude Code harness (Codex via `codex exec`, Grok via its CLI, DeepSeek/MiMo
+  the Claude Code harness (Codex via `codex exec`, Grok via its CLI, DeepSeek/MiMo/GLM
   via `claude -p` with the weights swapped). A peer is a *full agent*, not an API call.
 
 ---
@@ -82,16 +82,17 @@ Convergence across diverse lenses = confidence. Divergence = a tradeoff to resol
 ## Invocation
 
 ```
-   prism  [N]  [m|xh]  <question>
-          │     │
-          │     └─ shared effort for the two tunable tiers (default m):
-          │          m  → Codex medium · Grok-Build medium
-          │          xh → Codex xhigh  · Grok-Build high
-          └─ how many of EACH of the six models (default 1 → 6 agents + self)
+   prism  [N]  [M]  <question>
+          │    │
+          │    └─ M gpt-pro lenses (optional second number; default 0)
+          └─ how many of EACH of the seven models (default 1 → 7 agents + self)
 
-   prism Why does X happen?              → 1 of each, medium  (the default)
-   prism 2 xh Which architecture?        → 2 of each, high tier
-   prism no deepseek, why X?             → natural-language deviations (exclude/count/effort)
+   No reasoning-effort knob — Codex always xhigh, Grok-Build always high.
+
+   prism Why does X happen?             → auto-sized (anchor: 1 of each)
+   prism 2 Which architecture?          → 2 of each, no gpt-pro
+   prism 2 3 Bet-the-company call?      → 2 of each + 3 gpt-pro lenses
+   prism no deepseek, why X?            → natural-language deviations (exclude/count)
 ```
 
 ---
@@ -112,7 +113,7 @@ backgrounded process. The Integrator stays in the loop for the judgment.
                                       (verbatim, safe)      the script — not you)
 
  2  scaffold ──► fill ─────►  /tmp/prism-<id>.dispatch     one record per lens
-    (--preset pre-fills 6 lenses)        Type/To/Effort/Lens
+    (--preset pre-fills 7 lenses)        Type/To/Effort/Lens
 
  3  prepare ───────────────►  ┌────────────────────────────────────────────┐
                               │ validate · render launchers · write        │
@@ -128,7 +129,8 @@ backgrounded process. The Integrator stays in the loop for the judgment.
                            ├── relay ──► grok-build   │                │
                            ├── relay ──► grok-composer├─► <id>-result.json
                            ├── relay ──► deepseek     │   + .relay/…res.md (×peer)
-                           └── relay ──► mimo ────────┘                │
+                           ├── relay ──► mimo         │                │
+                           └── relay ──► glm ─────────┘                │
                                                                        ▼
  5  WAIT for every notification ░░░░░░░ HARD GATE ░░░░░ (no early synthesis)
        ~K notifications: one per subagent + one for the whole parallax batch
@@ -140,8 +142,9 @@ backgrounded process. The Integrator stays in the loop for the judgment.
 
  7  synthesize ─────────────►  verdict · conf · n/total agree [ · ⚠ dissent ]
                                (read each .res.md; weigh; write the brief)
-       └─ large runs (≥~12): digest <manifest> first, then deep-read only
-          the dissenting / weak / tie-break .res.md
+       └─ large/high-volume runs (≥~12, or outputs crowd context): digest
+          <manifest> first, then deep-read only the dissenting / weak /
+          novel-rationale / tie-break .res.md
 
  8  clean ─────────────────►  prism-launch clean <id>     rm -f /tmp/prism-<id>*
 ```
@@ -151,10 +154,10 @@ backgrounded process. The Integrator stays in the loop for the judgment.
 ## `prism-launch` subcommands
 
 ```
-  scaffold  [--n N] [--effort m|xh] [--preset TYPE] [--packet PATH]
-              └ print a fill-in dispatch skeleton (correct order + effort tokens).
+  scaffold  [--n N] [--preset TYPE] [--packet PATH]
+              └ print a fill-in dispatch skeleton (correct order + fixed Codex x / Grok-Build h effort).
                 --preset review|design|diagnosis|compare|research|decision|writing
-                pre-fills six lenses by task type (N=1).
+                pre-fills seven lenses by task type (N=1).
 
   prepare   --dispatch <file>     (or --config <json>)
               └ validate, render every launcher from templates, write the manifest,
@@ -168,8 +171,9 @@ backgrounded process. The Integrator stays in the loop for the judgment.
                                     exit if any failed.
 
   digest    <manifest> [--out P]  └ extract each peer's ## Digest block into one small
-                                    lineage-tagged file (large-run synthesis; subagent
-                                    + self digests are already in the conversation).
+                                    lineage-tagged file (large- or high-volume-run
+                                    synthesis; subagent + self digests are already in
+                                    the conversation).
 
   clean     <id | packet-path>    └ rm -f /tmp/prism-<id>*  (guarded against globs).
 ```
@@ -220,11 +224,11 @@ a long header may instead render as a two-column `Verdict | Confidence | …` ta
   ├── README.md                   ◄── you are here (the picture)
   ├── scripts/
   │   ├── prism-launch            dispatch engine (the subcommands above)
-  │   └── test-prism-launch.sh    148-test suite (no network — fake-relay for dispatch)
+  │   └── test-prism-launch.sh    188-test suite (no network — fake-relay for dispatch)
   └── templates/
       ├── launcher-subagent.tmpl       Claude subagent prompt (plain markdown)
       ├── launcher-relay-codex.tmpl    Codex / GPT  — <goal> style
-      ├── launcher-relay-costar.tmpl   DeepSeek/MiMo/Grok — CO-STAR XML
+      ├── launcher-relay-costar.tmpl   DeepSeek/MiMo/GLM/Grok — CO-STAR XML
       ├── shared-constraints.md        canonical read-only / anti-recursion block
       │                                (prepare injects this; never hand-copied)
       └── shared-how-to-answer.md      canonical "## How to answer" block
@@ -247,7 +251,7 @@ a long header may instead render as a two-column `Verdict | Confidence | …` ta
   │                             the anti-recursion block is injected verbatim + the
   │                             RELAY_PEER guard refuses a nested launch.
   ├─ Read-only leaf agents ──── peers/subagents produce analysis only (one .res.md write).
-  └─ Effort vocabulary ──────── Codex medium|xhigh · Grok-Build medium|high, registry-enforced.
+  └─ Effort (fixed) ─────────── prism always uses Codex xhigh · Grok-Build high (top tier; no selection).
 ```
 
 ---

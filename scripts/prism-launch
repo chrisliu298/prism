@@ -17,7 +17,7 @@ fi
 # emits a single structured result. The same-model subagent half stays in the
 # conversation as Agent-tool calls — a shell script cannot (and must not) launch
 # Claude agents, and `claude -p` is never used for Claude here (it is only
-# relay's transport for DeepSeek/MiMo).
+# relay's transport for DeepSeek/MiMo/GLM).
 #
 # Usage:
 #   prism-launch prepare --config <config.json>      # foreground: render + validate + manifest
@@ -45,8 +45,8 @@ TEMPLATES_DIR=$(cd "$SCRIPT_DIR/../templates" && pwd 2>/dev/null) \
 # of raw JSON.
 
 DISPATCH_CONFIG=""
-DP_packet=""; DP_px=""; DP_sa=""
-DP_type=""; DP_to=""; DP_name=""; DP_effort=""; DP_lens=""; DP_desc=""; DP_in=0; DP_seen=""
+DP_packet=""; DP_px=""; DP_sa=""; DP_gp=""; DP_refs=""
+DP_type=""; DP_to=""; DP_name=""; DP_effort=""; DP_lens=""; DP_desc=""; DP_posture=""; DP_in=0; DP_seen=""
 
 dp_trim() { local s="$1"; s="${s#"${s%%[![:space:]]*}"}"; s="${s%"${s##*[![:space:]]}"}"; printf '%s' "$s"; }
 
@@ -69,6 +69,7 @@ dp_flush() {
   local obj
   case "$DP_type" in
     parallax)
+      [ -z "$DP_posture" ] || die "prepare: --dispatch parallax record must not set Posture (that key is gptpro-only)"
       obj=$(jq -n --arg to "$DP_to" --arg name "$DP_name" --arg effort "$DP_effort" \
                   --arg lens "$DP_lens" --arg desc "$DP_desc" '
         ($lens | ascii_downcase | gsub("[^a-z0-9]+"; "-") | gsub("(^-|-$)"; "")) as $auto
@@ -76,20 +77,25 @@ dp_flush() {
         + (if $effort != "" then {effort:$effort} else {} end)')
       DP_px="$DP_px$obj"$'\n' ;;
     subagent)
-      [ -z "$DP_to$DP_name$DP_effort" ] || die "prepare: --dispatch subagent record must not set To/Name/Effort (those are parallax-only; did you mean 'Type: parallax'?)"
+      [ -z "$DP_to$DP_name$DP_effort$DP_posture" ] || die "prepare: --dispatch subagent record must not set To/Name/Effort/Posture (those are parallax/gptpro-only; did you mean a different Type?)"
       obj=$(jq -n --arg lens "$DP_lens" --arg desc "$DP_desc" '{lens:$lens, lens_desc:$desc}')
       DP_sa="$DP_sa$obj"$'\n' ;;
-    *) die "prepare: --dispatch record has invalid or missing Type '$DP_type' (must be 'parallax' or 'subagent')" ;;
+    gptpro)
+      [ -z "$DP_to$DP_name$DP_effort" ] || die "prepare: --dispatch gptpro record must not set To/Name/Effort (gpt-pro is orchestrator-direct with no peer or effort knob; only Lens, Lens-Desc, and optional Posture)"
+      obj=$(jq -n --arg lens "$DP_lens" --arg desc "$DP_desc" --arg posture "$DP_posture" \
+        '{lens:$lens, lens_desc:$desc} + (if $posture != "" then {posture:$posture} else {} end)')
+      DP_gp="$DP_gp$obj"$'\n' ;;
+    *) die "prepare: --dispatch record has invalid or missing Type '$DP_type' (must be 'parallax', 'subagent', or 'gptpro')" ;;
   esac
-  DP_type=""; DP_to=""; DP_name=""; DP_effort=""; DP_lens=""; DP_desc=""; DP_in=0
+  DP_type=""; DP_to=""; DP_name=""; DP_effort=""; DP_lens=""; DP_desc=""; DP_posture=""; DP_in=0
 }
 
 # Parse a --dispatch file into a normalized config JSON file. Sets DISPATCH_CONFIG
 # to that path; die()s on any structural error.
 dispatch_to_config() {
   local file="$1" line t key val lineno=0
-  DP_packet=""; DP_px=""; DP_sa=""
-  DP_type=""; DP_to=""; DP_name=""; DP_effort=""; DP_lens=""; DP_desc=""; DP_in=0; DP_seen=""
+  DP_packet=""; DP_px=""; DP_sa=""; DP_gp=""; DP_refs=""
+  DP_type=""; DP_to=""; DP_name=""; DP_effort=""; DP_lens=""; DP_desc=""; DP_posture=""; DP_in=0; DP_seen=""
 
   while IFS= read -r line || [ -n "$line" ]; do
     lineno=$((lineno + 1))
@@ -104,9 +110,13 @@ dispatch_to_config() {
       Shared-Packet)
         [ -z "$DP_packet" ] || die "prepare: --dispatch has more than one Shared-Packet line"
         DP_packet="$val" ;;
+      Reference)
+        # Top-level, repeatable: the authoritative inlining list for gptpro lenses.
+        # `Reference: none` (sole entry) is an explicit opt-out (inline only the packet).
+        DP_refs="$DP_refs$val"$'\n' ;;
       Type)
         dp_flush; DP_in=1; DP_type="$val"; DP_seen="" ;;
-      To|Name|Effort|Lens|Lens-Desc)
+      To|Name|Effort|Lens|Lens-Desc|Posture)
         [ "$DP_in" -eq 1 ] || die "prepare: --dispatch line $lineno: '$key' appears before any 'Type:' record"
         case " $DP_seen " in *" $key "*) die "prepare: --dispatch line $lineno: duplicate '$key' in one record" ;; esac
         DP_seen="$DP_seen $key"
@@ -116,8 +126,9 @@ dispatch_to_config() {
           Effort)    DP_effort=$(dp_norm_effort "$val") ;;
           Lens)      DP_lens="$val" ;;
           Lens-Desc) DP_desc="$val" ;;
+          Posture)   DP_posture="$val" ;;
         esac ;;
-      *) die "prepare: --dispatch line $lineno: unknown key '$key' (valid: Shared-Packet, Type, To, Name, Effort, Lens, Lens-Desc)" ;;
+      *) die "prepare: --dispatch line $lineno: unknown key '$key' (valid: Shared-Packet, Reference, Type, To, Name, Effort, Lens, Lens-Desc, Posture)" ;;
     esac
   done < "$file"
   dp_flush
@@ -131,11 +142,22 @@ dispatch_to_config() {
     *[[:space:]]*|*'*'*|*'?'*|*'['*) die "prepare: --dispatch Shared-Packet must not contain whitespace or glob characters: $DP_packet" ;;
   esac
 
-  local pxj saj cfg gen
+  local pxj saj gpj refj cfg gen
   pxj=$(printf '%s' "$DP_px" | jq -s '.')
   saj=$(printf '%s' "$DP_sa" | jq -s '.')
-  cfg=$(jq -n --arg p "$DP_packet" --argjson px "$pxj" --argjson sa "$saj" \
-        '{shared_packet:$p, parallax:$px, subagents:$sa}')
+  gpj=$(printf '%s' "$DP_gp" | jq -s '.')
+  # references: one absolute path per non-empty line. A sole `none` (any case) →
+  # explicit empty list (present-but-empty: inline only the packet). No Reference
+  # lines at all → key omitted (prepare then falls back to the packet's
+  # `### Reference Materials` list). Else → that exact list (authoritative).
+  refj=$(printf '%s' "$DP_refs" | jq -R -s '
+    [ splits("\n") | select(length > 0) ] as $lines
+    | if   ($lines | map(ascii_downcase)) == ["none"] then []
+      elif ($lines | length) > 0                      then $lines
+      else null end')
+  cfg=$(jq -n --arg p "$DP_packet" --argjson px "$pxj" --argjson sa "$saj" --argjson gp "$gpj" --argjson ref "$refj" \
+        '{shared_packet:$p, parallax:$px, subagents:$sa, gptpro:$gp}
+         + (if $ref != null then {references:$ref} else {} end)')
   gen="${DP_packet%.md}-config.normalized.json"
   printf '%s\n' "$cfg" > "$gen" || die "prepare: could not write normalized config: $gen"
   DISPATCH_CONFIG="$gen"
@@ -242,8 +264,10 @@ cmd_prepare() {
     (.shared_packet) as $pkt
     | (.parallax // []) as $px
     | (.subagents // []) as $sa
+    | (.gptpro // []) as $gp
     | ($px | type) as $pxt | (if $pxt != "array" then bad("parallax must be an array") else . end)
     | ($sa | type) as $sat | (if $sat != "array" then bad("subagents must be an array") else . end)
+    | ($gp | type) as $gpt | (if $gpt != "array" then bad("gptpro must be an array") else . end)
 
     # Validate + normalize parallax entries against the peer registry.
     | ($peers | keys) as $valid_peers
@@ -283,13 +307,31 @@ cmd_prepare() {
         | { lens: $lens, lens_desc: $desc, slug: $slug, launcher: ($base + "-launcher-subagent-" + $slug + ".md") }
       )) as $san
 
+    # Validate + normalize gptpro entries (lens-only, optional posture; slug → filenames).
+    # gpt-pro is orchestrator-direct: no peer, no effort, its own launcher/res/log lane.
+    | ($gp | map(
+        (.lens | chktext("gptpro .lens")) as $lens
+        | (.lens_desc | chktext("gptpro .lens_desc")) as $desc
+        | (.posture // null) as $posture
+        | (if ($posture != null) and ((($posture == "deep-reasoning") or ($posture == "research-grounded")) | not)
+             then bad("gptpro .posture must be \"deep-reasoning\" or \"research-grounded\", got: " + ($posture|tostring)) else . end)
+        | ($lens | ascii_downcase | gsub("[^a-z0-9]+"; "-") | gsub("(^-|-$)"; "")) as $slug
+        | (if $slug == "" then bad("gptpro .lens must contain at least one [a-z0-9] character to form a launcher filename: " + $lens) else . end)
+        | { lens: $lens, lens_desc: $desc, slug: $slug, posture: $posture,
+            launcher: ($base + "-gptpro-" + $slug + ".md"),
+            res:      ($base + "-gptpro-" + $slug + ".res.md"),
+            log:      ($base + "-gptpro-" + $slug + ".log") }
+      )) as $gpn
+
     # All lens names across the whole run must be distinct (redundancy guard).
-    | (($pxn + $san) | map(.lens)) as $lenses
+    | (($pxn + $san + $gpn) | map(.lens)) as $lenses
     | (if ($lenses|length) != ($lenses|unique|length) then bad("duplicate lens name in run; every agent needs a distinct lens") else . end)
     | ($pxn | map(.name)) as $names
     | (if ($names|length) != ($names|unique|length) then bad("duplicate parallax name; each relay --name must be distinct (it keys the per-peer log)") else . end)
     | ($san | map(.slug)) as $saslugs
     | (if ($saslugs|length) != ($saslugs|unique|length) then bad("two subagent lenses slugify to the same launcher filename; make the lens names more distinct") else . end)
+    | ($gpn | map(.slug)) as $gpslugs
+    | (if ($gpslugs|length) != ($gpslugs|unique|length) then bad("two gptpro lenses slugify to the same launcher filename; make the lens names more distinct") else . end)
 
     # Per-peer counts derived from the dispatch, not a hardcoded peer list.
     | ($pxn | group_by(.to) | map({key: .[0].to, value: length}) | from_entries) as $by_peer
@@ -302,10 +344,12 @@ cmd_prepare() {
           subagents: ($san|length),
           by_peer: $by_peer,
           parallax_total: ($pxn|length),
+          gptpro: ($gpn|length),
           dispatched_total: (($san|length) + ($pxn|length))
         },
         parallax: $pxn,
-        subagents: $san
+        subagents: $san,
+        gptpro: $gpn
       }
   ' "$config") || die "prepare: validation failed (see message above)"
 
@@ -353,32 +397,130 @@ cmd_prepare() {
     i=$((i + 1))
   done
 
+  # ── gpt-pro launcher composition (compose-in-prepare) ────────────────────────
+  # gpt-pro runs in a web tab and CANNOT read local files, so prepare inlines the
+  # frozen packet + every reference file's CONTENTS into a self-contained launcher.
+  # This is the load-bearing automation: it keeps reference contents out of the
+  # orchestrator's context and removes the hand-inlining (with its drift/omission
+  # and instruction-inversion-guard-dropping risk). prism-launch composes and
+  # collects; it never reimplements gpt-pro's transport/run-id/recovery/semaphore —
+  # the orchestrator still fires each `gpt-pro < launcher` call (see the summary).
+  local ngp; ngp=$(echo "$manifest_json" | jq '.gptpro | length')
+  if [ "$ngp" -gt 0 ]; then
+    local GPTPRO_MAX_BYTES=1000000
+    local gtmpl="$TEMPLATES_DIR/launcher-gptpro.tmpl"
+    local gground="$TEMPLATES_DIR/shared-gptpro-grounding.md"
+    local gcalib="$TEMPLATES_DIR/shared-gptpro-calibration.md"
+    [ -f "$gtmpl" ]   || die "prepare: gptpro launcher template missing: $gtmpl"
+    [ -f "$gground" ] || die "prepare: gptpro grounding template missing: $gground"
+    [ -f "$gcalib" ]  || die "prepare: gptpro calibration template missing: $gcalib"
+
+    # Resolve the reference list. Authoritative source: the dispatch `Reference:`
+    # keys (config .references — a present key, even empty, wins). Fallback: the
+    # packet's `### Reference Materials` bullets. Exactly ONE source feeds the
+    # inliner, so the two can never drift.
+    local refs="" have_refs_key
+    have_refs_key=$(jq 'has("references")' "$config")
+    if [ "$have_refs_key" = "true" ]; then
+      refs=$(jq -r '.references[]' "$config")
+    else
+      grep -q '^### Reference Materials' "$packet" \
+        || die "prepare: gptpro lens(es) requested but the shared packet has no '### Reference Materials' list and the dispatch has no 'Reference:' keys — gpt-pro cannot read local files, so it has nothing to inline. Add 'Reference:' lines to the dispatch (or 'Reference: none' to inline only the packet), or a '### Reference Materials' list to the packet."
+      # Bullets `- /abs/path` under the heading, until the next heading. Strip only
+      # the leading "- " (do not word-split); ignore non-bullet prose lines.
+      refs=$(awk '
+        /^### Reference Materials/                { cap=1; next }
+        cap && /^#[#]*[[:space:]]/                { cap=0 }
+        cap && /^[[:space:]]*-[[:space:]]+\//     { l=$0; sub(/^[[:space:]]*-[[:space:]]+/,"",l); print l }
+      ' "$packet")
+    fi
+
+    # Validate every resolved reference, fail-closed, BEFORE composing any launcher
+    # (prepare is foreground — no quota is at risk here, but a bad ref must never
+    # reach a quota-bearing gpt-pro call). Heredoc (not a pipe) so die() exits.
+    local r
+    while IFS= read -r r; do
+      [ -n "$r" ] || continue
+      case "$r" in /*) ;; *) die "prepare: gptpro Reference must be an absolute path: $r" ;; esac
+      case "$r" in *[[:space:]]*|*'*'*|*'?'*|*'['*) die "prepare: gptpro Reference path must not contain whitespace or glob characters: $r" ;; esac
+      [ -e "$r" ] || die "prepare: gptpro Reference not found: $r"
+      [ -d "$r" ] && die "prepare: gptpro Reference is a directory, not a file: $r — list explicit files (gpt-pro cannot be given a directory to inline)."
+      [ -f "$r" ] || die "prepare: gptpro Reference is not a regular file: $r"
+      [ -r "$r" ] || die "prepare: gptpro Reference is not readable: $r"
+      local rb; rb=$(wc -c < "$r" | tr -d ' ')
+      [ "$rb" -le "$GPTPRO_MAX_BYTES" ] || die "prepare: gptpro Reference is ${rb} bytes, over the ${GPTPRO_MAX_BYTES}-byte cap on its own: $r — excerpt/shrink it for the whole run (all agents), not just gpt-pro."
+    done <<EOF
+$refs
+EOF
+
+    # Compose one self-contained launcher per gpt-pro lens, streaming file contents
+    # with cat so a large packet/ref never sits in one shell variable.
+    local gtpl; gtpl=$(cat "$gtmpl")
+    local gn gi=0 glens gdesc glauncher ghdr gfirst gb
+    gn=$(echo "$manifest_json" | jq '.gptpro | length')
+    while [ "$gi" -lt "$gn" ]; do
+      glens=$(echo "$manifest_json"     | jq -r ".gptpro[$gi].lens")
+      gdesc=$(echo "$manifest_json"     | jq -r ".gptpro[$gi].lens_desc")
+      glauncher=$(echo "$manifest_json" | jq -r ".gptpro[$gi].launcher")
+      ghdr="${gtpl//\{\{LENS_NAME\}\}/$glens}"
+      ghdr="${ghdr//\{\{LENS_DESC\}\}/$gdesc}"
+      case "$ghdr" in *'{{'*) die "prepare: unreplaced {{slot}} in rendered gptpro launcher for $glens" ;; esac
+      gfirst=$(printf '%s\n' "$ghdr" | head -1)
+      case "$gfirst" in CRITICAL:*) ;; *) die "prepare: rendered gptpro launcher does not start with the anti-recursion CRITICAL line" ;; esac
+      {
+        printf '%s\n' "$ghdr"
+        cat "$packet"
+        printf '\n\n## Inlined reference materials (you cannot open these paths — full contents pasted)\n'
+        while IFS= read -r r; do
+          [ -n "$r" ] || continue
+          printf '\n### %s\n```\n' "$r"; cat "$r"; printf '\n```\n'
+        done <<EOF
+$refs
+EOF
+        printf '\n'; cat "$gground"
+        printf '\n'; cat "$gcalib"
+      } > "$glauncher"
+      gb=$(wc -c < "$glauncher" | tr -d ' ')
+      [ "$gb" -le "$GPTPRO_MAX_BYTES" ] || die "prepare: composed gptpro launcher for '$glens' is ${gb} bytes (cap ${GPTPRO_MAX_BYTES}) — shrink the shared packet or reference list for the whole run (all agents), not just gpt-pro. Launcher: $glauncher"
+      gi=$((gi + 1))
+    done
+  fi
+
   # Write the manifest atomically, only after every launcher rendered cleanly.
   printf '%s\n' "$manifest_json" > "$manifest.tmp" && mv "$manifest.tmp" "$manifest"
 
   # Human-facing summary for the orchestrator.
   local nsub peershape
   nsub=$(echo "$manifest_json" | jq '.counts.subagents')
-  # Display in canonical (docs) order — codex, the two Grok tiers, then DeepSeek, MiMo —
+  # Display in canonical (docs) order — codex, the two Grok tiers, then DeepSeek, MiMo, GLM —
   # not jq's alphabetical key order; any future peer not in the list is appended.
   peershape=$(echo "$manifest_json" | jq -r '
     .counts.by_peer as $bp
-    | ["codex","grok-build","grok-composer","deepseek","mimo"] as $ord
+    | ["codex","grok-build","grok-composer","deepseek","mimo","glm"] as $ord
     | ($ord + ($bp | keys | map(select(. as $k | ($ord | index($k)) == null))))
     | map(select($bp[.] != null) | "\(.)=\($bp[.])")
     | join(" ")')
 
   echo "prism-launch: run '$run_id' prepared — all checks passed."
-  echo "dispatch shape: subagents=$nsub ${peershape:-(no parallax)}"
+  echo "dispatch shape: subagents=$nsub ${peershape:-(no parallax)}$([ "$ngp" -gt 0 ] && echo " gptpro=$ngp")"
   local ptot nnotif; ptot=$(echo "$manifest_json" | jq '.counts.parallax_total'); nnotif=$nsub
-  [ "$ptot" -gt 0 ] && nnotif=$((nsub + 1))
-  echo "wait for $nnotif completion notification(s): one per subagent ($nsub)$([ "$ptot" -gt 0 ] && echo ' + one for the parallax batch')."
+  [ "$ptot" -gt 0 ] && nnotif=$((nnotif + 1))
+  nnotif=$((nnotif + ngp))
+  echo "wait for $nnotif completion notification(s): one per subagent ($nsub)$([ "$ptot" -gt 0 ] && echo ' + one for the parallax batch')$([ "$ngp" -gt 0 ] && echo " + one per gpt-pro lens ($ngp)")."
   echo
   # Actionable next-steps FIRST (the bulky subagent launcher dump goes last, so the
   # parallax command and manifest path stay easy to find at any N).
   if [ "$(echo "$manifest_json" | jq '.counts.parallax_total')" -gt 0 ]; then
     echo "Parallax — ONE backgrounded Bash call dispatches all cross-model peers:"
     echo "  $0 parallax $manifest"
+    echo
+  fi
+  if [ "$ngp" -gt 0 ]; then
+    echo "GPT-Pro — fire each lens YOURSELF as a backgrounded Bash call"
+    echo "(run_in_background: true, timeout: 7260000; each is its own completion notification):"
+    echo "$manifest_json" | jq -r '.gptpro[] | "  gpt-pro < \(.launcher) > \(.res) 2> \(.log)"'
+    echo "On a non-zero exit, follow gpt-pro-relay's recovery table (124/255 reattach with the"
+    echo "literal run-id from the task .output; 4 fresh-submit; 2/3 terminal). Never raise GPT_PRO_MAX_PARALLEL."
     echo
   fi
   echo "manifest: $manifest"
@@ -625,7 +767,7 @@ lens_desc_for() {
     First-Principles)    echo "weigh how this looks rebuilt from the goal up, ignoring the current shape" ;;
     Outsider)            echo "weigh how a newcomer from another field would approach it" ;;
     Reframe)             echo "weigh an alternate prior or problem framing that recasts the question (exploratory, not an attack)" ;;
-    Lateral-Generative)  echo "weigh deliberately non-obvious options via analogy, inversion, or constraint removal — novelty over coverage" ;;
+    Lateral-Generative)  echo "weigh deliberately non-obvious, out-of-the-box options via analogy, inversion, or constraint removal — novelty over coverage" ;;
     # Evidence axis
     Empirical)           echo "weigh the claim by what is measurable: baseline, metric, magnitude, base rate — distrust unmeasured assertions" ;;
     Correctness)         echo "weigh correctness guarantees and edge cases" ;;
@@ -643,52 +785,49 @@ lens_desc_for() {
     # Delivery axis
     Pragmatist)          echo "weigh the workable path that ships under real constraints — resources, sequencing, what it takes to execute" ;;
     Simplicity)          echo "weigh the approach with the fewest moving parts" ;;
+    Structural)          echo "weigh the structurally correct fix at the needed scope — reject the expedient hack and scope-padding alike (durable means correct, not bigger)" ;;
     # Time axis
     Temporal)            echo "weigh how the answer changes over time: lifecycle, sequencing, reversibility (one-way vs two-way doors), path dependence" ;;
     *)                   echo "weigh the $1 axis — refine this description" ;;
   esac
 }
 
-# Six distinct lenses per task-type preset, in canonical tier order (heaviest-
+# Seven distinct lenses per task-type preset, in canonical tier order (heaviest-
 # reasoning first, so it lands on the subagent/codex slots). Each set spreads across
-# distinct axis families (see SKILL.md "Lens Axes"). Returns 1 if unknown.
+# distinct axis families (see SKILL.md "Lens Axes") — the 7th lands on the GLM tier.
+# Returns 1 if unknown.
 preset_lenses() {
   case "$1" in
-    review)    echo "Adversarial Correctness Simplicity Depth-Weighted Temporal Outsider" ;;
-    design)    echo "First-Principles Adversarial Simplicity Stakeholder Temporal Empirical" ;;
-    diagnosis) echo "Causal Falsification Empirical Depth-Weighted Temporal Outsider" ;;
-    compare)   echo "First-Principles Empirical Simplicity Stakeholder Temporal Disconfirming" ;;
-    research)  echo "First-Principles Breadth-Weighted Depth-Weighted Outsider Empirical Lateral-Generative" ;;
-    decision)  echo "First-Principles Empirical Stakeholder Temporal Pragmatist Disconfirming" ;;
-    writing)   echo "Adversarial Clarity Audience Simplicity Outsider Empirical" ;;
+    review)    echo "Adversarial Correctness Simplicity Depth-Weighted Temporal Outsider Stakeholder" ;;
+    design)    echo "First-Principles Adversarial Simplicity Stakeholder Temporal Empirical Breadth-Weighted" ;;
+    diagnosis) echo "Causal Falsification Empirical Depth-Weighted Temporal Outsider Stakeholder" ;;
+    compare)   echo "First-Principles Empirical Simplicity Stakeholder Temporal Disconfirming Breadth-Weighted" ;;
+    research)  echo "First-Principles Breadth-Weighted Depth-Weighted Outsider Empirical Lateral-Generative Temporal" ;;
+    decision)  echo "First-Principles Empirical Stakeholder Temporal Pragmatist Disconfirming Breadth-Weighted" ;;
+    writing)   echo "Adversarial Clarity Audience Simplicity Outsider Empirical Depth-Weighted" ;;
     *) return 1 ;;
   esac
 }
 
 # Emit a ready-to-fill dispatch skeleton for the symmetric default (N of every
-# model, one shared effort). With --preset <task-type>, pre-fill six lenses (N=1).
+# model; Codex xhigh + Grok Build high are fixed). With --preset <task-type>, pre-fill seven lenses (N=1).
 # Otherwise replace each "FILL" Lens / Lens-Desc, then Write it as the dispatch
 # file. Removes the mechanical Type/To/Effort/order boilerplate.
 cmd_scaffold() {
-  local n=1 effort="m" packet="" preset=""
+  local n=1 packet="" preset=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --n)      [ $# -ge 2 ] || die "scaffold: --n requires a value";      n="$2";      shift 2 ;;
-      --effort) [ $# -ge 2 ] || die "scaffold: --effort requires a value"; effort="$2"; shift 2 ;;
       --packet) [ $# -ge 2 ] || die "scaffold: --packet requires a value"; packet="$2"; shift 2 ;;
       --preset) [ $# -ge 2 ] || die "scaffold: --preset requires a value"; preset="$2"; shift 2 ;;
-      -*) die "scaffold: unknown flag: $1" ;;
+      -*) die "scaffold: unknown flag: $1 (effort is fixed — Codex xhigh, Grok Build high — there is no --effort)" ;;
       *)  die "scaffold: unexpected argument: $1" ;;
     esac
   done
   case "$n" in ''|*[!0-9]*) die "scaffold: --n must be a positive integer" ;; esac
   [ "$n" -ge 1 ] || die "scaffold: --n must be >= 1"
-  local cdx gbe ef
-  case "$effort" in
-    m|medium)        cdx="m"; gbe="m"; ef="m"  ;;
-    xh|x|xhigh|high) cdx="x"; gbe="h"; ef="xh" ;;
-    *) die "scaffold: --effort must be m or xh" ;;
-  esac
+  # Effort is fixed at the top tier — no selection. Codex xhigh (x), Grok Build high (h).
+  local cdx="x" gbe="h"
   [ -n "$packet" ] || packet="/tmp/prism-<id>.md"
 
   if [ -n "$preset" ]; then
@@ -697,7 +836,7 @@ cmd_scaffold() {
       || die "scaffold: unknown --preset '$preset' (try: review design diagnosis compare research decision writing)"
     set -- $names
     printf 'Shared-Packet: %s\n\n' "$packet"
-    printf '# Preset "%s" (effort=%s): six lenses pre-filled in canonical tier order.\n' "$preset" "$ef"
+    printf '# Preset "%s": seven lenses pre-filled in canonical tier order (Codex xhigh, Grok Build high — fixed).\n' "$preset"
     printf '# Edit any Lens / Lens-Desc to taste; write the Shared-Packet file before prepare.\n\n'
     printf 'Type: subagent\nLens: %s\nLens-Desc: %s\n\n' "$1" "$(lens_desc_for "$1")"
     printf 'Type: parallax\nTo: codex\nEffort: %s\nLens: %s\nLens-Desc: %s\n\n' "$cdx" "$2" "$(lens_desc_for "$2")"
@@ -705,11 +844,12 @@ cmd_scaffold() {
     printf 'Type: parallax\nTo: grok-composer\nLens: %s\nLens-Desc: %s\n\n' "$4" "$(lens_desc_for "$4")"
     printf 'Type: parallax\nTo: deepseek\nLens: %s\nLens-Desc: %s\n\n' "$5" "$(lens_desc_for "$5")"
     printf 'Type: parallax\nTo: mimo\nLens: %s\nLens-Desc: %s\n\n' "$6" "$(lens_desc_for "$6")"
+    printf 'Type: parallax\nTo: glm\nLens: %s\nLens-Desc: %s\n\n' "$7" "$(lens_desc_for "$7")"
     return 0
   fi
 
   printf 'Shared-Packet: %s\n\n' "$packet"
-  printf '# Symmetric scaffold: N=%s of each of the six models, effort=%s.\n' "$n" "$ef"
+  printf '# Symmetric scaffold: N=%s of each of the seven models (Codex xhigh, Grok Build high — fixed).\n' "$n"
   printf '# Replace every "FILL" Lens / Lens-Desc (prepare rejects any leftover FILL).\n'
   printf '# Order is the canonical tier order — put your heaviest-reasoning (e.g. Adversarial)\n'
   printf '# lens on a subagent or codex. Write the Shared-Packet file before running prepare.\n'
@@ -725,7 +865,7 @@ cmd_scaffold() {
     i=$((i+1)); printf 'Type: parallax\nTo: grok-build\nEffort: %s\nLens: FILL-%s\nLens-Desc: FILL\n\n' "$gbe" "$i"; k=$((k+1))
   done
   local peer
-  for peer in grok-composer deepseek mimo; do
+  for peer in grok-composer deepseek mimo glm; do
     k=1; while [ "$k" -le "$n" ]; do
       i=$((i+1)); printf 'Type: parallax\nTo: %s\nLens: FILL-%s\nLens-Desc: FILL\n\n' "$peer" "$i"; k=$((k+1))
     done
@@ -737,7 +877,14 @@ cmd_scaffold() {
 # Remove every temp artifact for a run: /tmp/prism-<id>* (packet, dispatch,
 # normalized config, manifest, rendered launchers, out logs, result).
 cmd_clean() {
-  local target="${1:-}"
+  local target="" force=false
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --force) force=true; shift ;;
+      -*)      die "clean: unknown flag: $1" ;;
+      *)       [ -z "$target" ] || die "clean: unexpected argument: $1"; target="$1"; shift ;;
+    esac
+  done
   [ -n "$target" ] || die "clean: <run-id or packet path> required (removes /tmp/prism-<id>*)"
   # Reject anything that could widen the trailing glob or escape the prism temp
   # prefix BEFORE deriving base — a target like '*' or '../..' must never reach rm.
@@ -755,6 +902,29 @@ cmd_clean() {
   esac
   case "$base" in /tmp/prism-?*) ;; *) die "clean: refusing to remove '$base*' — only a specific /tmp/prism-<id>* is allowed" ;; esac
   case "${base#/tmp/prism-}" in */*) die "clean: run id must not contain '/': $target" ;; esac
+
+  # gpt-pro live-worker guard: a <base>-gptpro-<slug>.log that recorded a run_id but
+  # whose .res.md is still absent/empty is a possibly-live detached macmini worker.
+  # Deleting its log/res abandons the worker (unrecoverable) and invites a
+  # double-submit on a later run. Refuse unless --force (which lists the run-ids so
+  # the operator owns the abandonment). gpt-pro itself owns the recovery; we only guard.
+  if [ "$force" = false ]; then
+    local glog grun gres live=""
+    for glog in "$base"-gptpro-*.log; do
+      [ -f "$glog" ] || continue
+      grun=$(sed -n 's/^gpt-pro: run_id=\([^ ]*\).*/\1/p' "$glog" 2>/dev/null | tail -1)
+      [ -n "$grun" ] || continue
+      gres="${glog%.log}.res.md"
+      [ -s "$gres" ] && continue            # completed — safe to clean
+      live="$live  $grun  (reattach: gpt-pro --run-id $grun · log: $glog)"$'\n'
+    done
+    if [ -n "$live" ]; then
+      die "clean: refusing — gpt-pro run(s) for '$(basename "$base")' may still be live on macmini (run_id logged, no .res.md yet). Deleting their state abandons the worker and risks a double-submit. Reattach (or confirm done), or re-run with --force.
+Possibly-live run-id(s):
+$live"
+    fi
+  fi
+
   local matches; matches=$(ls -d "$base"* 2>/dev/null | wc -l | tr -d ' ')
   rm -f "$base"*
   echo "prism-launch: removed $matches artifact(s) matching ${base}*"
@@ -770,17 +940,53 @@ cmd_results() {
   [ -n "$manifest" ] || die "results: <manifest.json> required"
   [ -f "$manifest" ] || die "results: manifest not found: $manifest"
   command -v jq >/dev/null 2>&1 || die "results: jq not found in PATH"
-  local packet base result
+  local packet base result id ptot gtot rc=0
   packet=$(jq -r '.shared_packet' "$manifest")
   base="${packet%.md}"; result="${base}-result.json"
-  [ -f "$result" ] || die "results: no result file yet ($result) — has the parallax fan finished?"
-  [ -s "$result" ] && jq -e '(.results | type) == "array"' "$result" >/dev/null 2>&1 \
-    || die "results: result file is empty or malformed: $result"
-  echo "prism-launch: parallax results for '$(jq -r '.id // "?"' "$result")'"
-  jq -r '.results[] | "  [" + (if .status=="done" then "done " else "ERROR" end) + "] " + .to + "  " + .name + "  " + (.res // ("(failed — see " + .log + ")"))' "$result"
-  # Recompute counts from .results rather than trusting (possibly stale) counters.
-  echo "summary: $(jq -r '([.results[]|select(.status=="done")]|length) as $ok | "\($ok)/\(.results|length) succeeded, \((.results|length)-$ok) failed"' "$result")"
-  [ "$(jq '[.results[]|select(.status!="done")]|length' "$result")" -eq 0 ]
+  id=$(jq -r '.id // "?"' "$manifest")
+  ptot=$(jq -r '.counts.parallax_total // (.parallax|length) // 0' "$manifest")
+  gtot=$(jq -r '.counts.gptpro // (.gptpro|length) // 0' "$manifest")
+  [ "$ptot" -gt 0 ] || [ "$gtot" -gt 0 ] || die "results: manifest has no parallax or gptpro entries"
+  echo "prism-launch: results for '$id'"
+
+  # Parallax lane (relay peers) — driven by the backgrounded fan's result.json.
+  if [ "$ptot" -gt 0 ]; then
+    [ -f "$result" ] || die "results: no parallax result file yet ($result) — has the parallax fan finished?"
+    [ -s "$result" ] && jq -e '(.results | type) == "array"' "$result" >/dev/null 2>&1 \
+      || die "results: parallax result file is empty or malformed: $result"
+    echo "parallax:"
+    jq -r '.results[] | "  [" + (if .status=="done" then "done " else "ERROR" end) + "] " + .to + "  " + .name + "  " + (.res // ("(failed — see " + .log + ")"))' "$result"
+    # Recompute counts from .results rather than trusting (possibly stale) counters.
+    echo "  summary: $(jq -r '([.results[]|select(.status=="done")]|length) as $ok | "\($ok)/\(.results|length) succeeded, \((.results|length)-$ok) failed"' "$result")"
+    [ "$(jq '[.results[]|select(.status!="done")]|length' "$result")" -eq 0 ] || rc=1
+  fi
+
+  # GPT-Pro lane (orchestrator-direct) — status read from each lens's .res.md
+  # (non-empty ⇒ done) and .log (surfaces the run_id for reattach if not yet done).
+  # prism-launch never owns gpt-pro's recovery; it only reports it.
+  if [ "$gtot" -gt 0 ]; then
+    echo "gpt-pro:"
+    local gi=0 gn glens gres glog grun
+    gn=$(jq '.gptpro | length' "$manifest")
+    while [ "$gi" -lt "$gn" ]; do
+      glens=$(jq -r ".gptpro[$gi].lens" "$manifest")
+      gres=$(jq -r ".gptpro[$gi].res" "$manifest")
+      glog=$(jq -r ".gptpro[$gi].log" "$manifest")
+      if [ -s "$gres" ]; then
+        echo "  [done ] $glens  $gres"
+      else
+        grun=$(sed -n 's/^gpt-pro: run_id=\([^ ]*\).*/\1/p' "$glog" 2>/dev/null | tail -1)
+        if [ -n "$grun" ]; then
+          echo "  [pending] $glens  run_id=$grun  (reattach: gpt-pro --run-id $grun · log: $glog)"
+        else
+          echo "  [pending] $glens  (not started or no run_id logged yet · log: $glog)"
+        fi
+        rc=1
+      fi
+      gi=$((gi + 1))
+    done
+  fi
+  return "$rc"
 }
 
 # ── digest ─────────────────────────────────────────────────────────────────
@@ -792,6 +998,25 @@ digest_lineage_of() {
     grok-build|grok-composer) echo "grok" ;;
     *)                        echo "$1"   ;;
   esac
+}
+
+# Print the LAST top-level "## Digest" block from a .res.md, ignoring anything
+# inside ``` code fences — so a fenced template example can't false-match, and a
+# fenced digest degrades to a clean miss (→ deep-read) rather than leaking trailing
+# prose. Starts only at an H2 `## Digest` (optional trailing :/. decoration), stops
+# at the next H1/H2 so a deeper `###` inside the digest doesn't truncate it.
+# BSD-awk-safe (no interval `{1,2}` / gawk `\>` — uses `#[#]?`).
+# CONTRACT: the `## Digest` heading is shared with templates/shared-how-to-answer.md.
+# Renaming it there silently zeroes extraction here — update both together.
+digest_extract_block() {
+  awk '
+    /^```/                                                 { infence = !infence; next }
+    infence                                                { next }
+    tolower($0) ~ /^##[[:space:]]+digest[[:space:].:-]*$/   { cap=1; buf=""; next }
+    cap && /^#[#]?[[:space:]]/                              { cap=0 }
+    cap                                                     { buf = buf $0 "\n" }
+    END                                                    { printf "%s", buf }
+  ' "$1"
 }
 
 # Extract each parallax peer's "## Digest" block from its .res.md into one small,
@@ -814,66 +1039,96 @@ cmd_digest() {
   command -v jq >/dev/null 2>&1 || die "digest: jq not found in PATH"
   jq -e . "$manifest" >/dev/null 2>&1 || die "digest: manifest is not valid JSON: $manifest"
 
-  local packet base result id n
+  local packet base result id ptotm gtot result_ok=0 has_counts process_px=0
   packet=$(jq -r '.shared_packet' "$manifest")
   base="${packet%.md}"; result="${base}-result.json"
   id=$(jq -r '.id // "?"' "$manifest")
-  [ -f "$result" ] || die "digest: no result file yet ($result) — has the parallax fan finished?"
-  [ -s "$result" ] && jq -e '(.results | type) == "array"' "$result" >/dev/null 2>&1 \
-    || die "digest: result file is empty or malformed: $result"
+  ptotm=$(jq -r '.counts.parallax_total // (.parallax|length) // 0' "$manifest")
+  gtot=$(jq -r '.counts.gptpro // (.gptpro|length) // 0' "$manifest")
+  has_counts=$(jq 'has("counts")' "$manifest")
+  if [ -s "$result" ] && jq -e '(.results | type) == "array"' "$result" >/dev/null 2>&1; then result_ok=1; fi
+  # Process the parallax lane only when this run actually has parallax peers (ptotm>0)
+  # OR the manifest is a legacy/hand-written one with no counts block (then trust
+  # result.json). A real gptpro-only manifest has counts with parallax_total=0, so a
+  # stale/unrelated result.json never renders phantom parallax peers.
+  if [ "$result_ok" -eq 1 ] && { [ "$ptotm" -gt 0 ] || [ "$has_counts" = "false" ]; }; then process_px=1; fi
+  # If the manifest declares parallax peers but the fan hasn't written a valid
+  # result.json yet, fail like before (don't emit a half-empty digest).
+  if [ "$ptotm" -gt 0 ] && [ "$result_ok" -eq 0 ]; then
+    [ -f "$result" ] && die "digest: result file is empty or malformed: $result" \
+                     || die "digest: no result file yet ($result) — has the parallax fan finished?"
+  fi
+  [ "$process_px" -eq 1 ] || [ "$gtot" -gt 0 ] || die "digest: no parallax result to digest and no gptpro entries — nothing to digest"
   [ -n "$out" ] || out="${base}-digest.md"
-  n=$(jq '.results | length' "$result")
 
-  local i to name res status lineage block extracted=0 warns=0
+  local total=0 extracted=0 warns=0 block
   {
     printf '# Prism digest — %s\n' "$id"
-    printf '# %s parallax peer(s). Subagent + self digests are in the orchestrator conversation, not here.\n' "$n"
-    printf '# Deep-read a peer'\''s full .res.md when its digest dissents, looks weak, or is the tie-breaker.\n\n'
-    i=0
-    while [ "$i" -lt "$n" ]; do
-      to=$(jq -r ".results[$i].to" "$result")
-      name=$(jq -r ".results[$i].name" "$result")
-      status=$(jq -r ".results[$i].status" "$result")
-      res=$(jq -r ".results[$i].res // \"\"" "$result")
-      lineage=$(digest_lineage_of "$to")
-      printf '## %s · %s  (lineage: %s)\n' "$to" "$name" "$lineage"
-      if [ "$status" != "done" ] || [ -z "$res" ]; then
-        printf '_peer failed — no response (see %s)_\n\n' "$result"; warns=$((warns + 1))
-      elif [ ! -f "$res" ]; then
-        printf '_response file missing: %s_\n\n' "$res"; warns=$((warns + 1))
-      else
-        # Capture the LAST top-level "## Digest" block, ignoring anything inside
-        # ``` code fences — so a fenced template example can't false-match, and a
-        # fenced digest degrades to a clean miss (→ deep-read) rather than leaking
-        # trailing prose into the digest. Starts only at an H2 `## Digest` (with an
-        # optional trailing :/. decoration), stops at the next H1/H2 heading so a
-        # deeper `###` line inside the digest doesn't truncate it. BSD-awk-safe
-        # (no interval `{1,2}` or gawk `\>` — uses `#[#]?`).
-        block=$(awk '
-          /^```/                                                 { infence = !infence; next }
-          infence                                                { next }
-          tolower($0) ~ /^##[[:space:]]+digest[[:space:].:-]*$/   { cap=1; buf=""; next }
-          cap && /^#[#]?[[:space:]]/                              { cap=0 }
-          cap                                                     { buf = buf $0 "\n" }
-          END                                                    { printf "%s", buf }
-        ' "$res")
-        if [ -n "$(printf '%s' "$block" | tr -d '[:space:]')" ]; then
-          printf '%s\n\n_full: %s_\n\n' "$block" "$res"; extracted=$((extracted + 1))
+    printf '# Parallax peers + gpt-pro lenses. Subagent + self digests are in the orchestrator conversation, not here.\n'
+    printf '# Deep-read a full .res.md when its digest dissents, looks weak, or is the tie-breaker.\n\n'
+
+    # Parallax lane (relay peers) — from result.json. Gated on process_px so a
+    # gptpro-only run with a stale result.json never renders phantom peers.
+    if [ "$process_px" -eq 1 ]; then
+      local n i to name res status lineage
+      n=$(jq '.results | length' "$result")
+      i=0
+      while [ "$i" -lt "$n" ]; do
+        to=$(jq -r ".results[$i].to" "$result")
+        name=$(jq -r ".results[$i].name" "$result")
+        status=$(jq -r ".results[$i].status" "$result")
+        res=$(jq -r ".results[$i].res // \"\"" "$result")
+        lineage=$(digest_lineage_of "$to")
+        total=$((total + 1))
+        printf '## %s · %s  (lineage: %s)\n' "$to" "$name" "$lineage"
+        if [ "$status" != "done" ] || [ -z "$res" ]; then
+          printf '_peer failed — no response (see %s)_\n\n' "$result"; warns=$((warns + 1))
+        elif [ ! -f "$res" ]; then
+          printf '_response file missing: %s_\n\n' "$res"; warns=$((warns + 1))
         else
-          printf '_no `## Digest` block found — read the full response: %s_\n\n' "$res"; warns=$((warns + 1))
+          block=$(digest_extract_block "$res")
+          if [ -n "$(printf '%s' "$block" | tr -d '[:space:]')" ]; then
+            printf '%s\n\n_full: %s_\n\n' "$block" "$res"; extracted=$((extracted + 1))
+          else
+            printf '_no `## Digest` block found — read the full response: %s_\n\n' "$res"; warns=$((warns + 1))
+          fi
         fi
-      fi
-      i=$((i + 1))
-    done
+        i=$((i + 1))
+      done
+    fi
+
+    # GPT-Pro lane (orchestrator-direct) — from each lens's .res.md (own lineage).
+    if [ "$gtot" -gt 0 ]; then
+      local gi=0 gn glens gres
+      gn=$(jq '.gptpro | length' "$manifest")
+      while [ "$gi" -lt "$gn" ]; do
+        glens=$(jq -r ".gptpro[$gi].lens" "$manifest")
+        gres=$(jq -r ".gptpro[$gi].res" "$manifest")
+        total=$((total + 1))
+        printf '## gpt-pro · %s  (lineage: gpt-pro)\n' "$glens"
+        if [ ! -s "$gres" ]; then
+          printf '_gpt-pro lens pending or failed — no response yet (%s)_\n\n' "$gres"; warns=$((warns + 1))
+        else
+          block=$(digest_extract_block "$gres")
+          if [ -n "$(printf '%s' "$block" | tr -d '[:space:]')" ]; then
+            printf '%s\n\n_full: %s_\n\n' "$block" "$gres"; extracted=$((extracted + 1))
+          else
+            printf '_no `## Digest` block found — read the full response: %s_\n\n' "$gres"; warns=$((warns + 1))
+          fi
+        fi
+        gi=$((gi + 1))
+      done
+    fi
   } > "$out"
 
-  # Exit 0 even at 0/n — digest is compaction-only (surfaced, not fatal); the
+  # Exit 0 even at 0/total — digest is compaction-only (surfaced, not fatal); the
   # orchestrator reads the summary and falls back to the full .res.md. But when
   # nothing extracted, name the likely cause so the empty digest isn't a mystery.
-  [ "$extracted" -gt 0 ] || [ "$n" -eq 0 ] || \
-    echo "prism-launch: note — 0 digests extracted; peers may predate the ## Digest requirement (re-run prepare on a fresh packet) or fenced their digest. Read the full .res.md files." >&2
+  [ "$extracted" -gt 0 ] || [ "$total" -eq 0 ] || \
+    echo "prism-launch: note — 0 digests extracted; peers may predate the ## Digest requirement (re-run prepare on a fresh packet), fenced their digest, or the ## Digest heading in templates/shared-how-to-answer.md was renamed without updating this extractor. Read the full .res.md files." >&2
   echo "prism-launch: wrote digest for '$id' → $out"
-  echo "summary: $extracted/$n peer digest(s) extracted, $warns warning(s)"
+  echo "summary: $extracted/$total peer digest(s) extracted, $warns warning(s)"
+  echo "prism-launch: reminder — the digest compacts inputs, it never decides; deep-read a dissenter's full .res.md before capping confidence on it." >&2
 }
 
 # ── main ─────────────────────────────────────────────────────────────────────
@@ -883,31 +1138,44 @@ cmd_help() {
 prism-launch — Prism dispatch launcher (parallax fan-out + dispatch prep)
 
 Usage:
-  prism-launch scaffold [--n <N>] [--effort m|xh] [--preset <type>] [--packet <path>]  # fill-in dispatch skeleton
+  prism-launch scaffold [--n <N>] [--preset <type>] [--packet <path>]  # fill-in dispatch skeleton
   prism-launch prepare  --dispatch <dispatch-file>   # default: line-oriented control file
   prism-launch prepare  --config   <config.json>     # escape hatch: raw JSON (one of the two)
   prism-launch parallax <manifest.json> [--dry-run]
   prism-launch parallax <manifest.json> --only <peer-name>   # re-dispatch ONE peer (retry), merge into result
-  prism-launch results  <manifest.json>              # print each peer's status + .res.md path
+  prism-launch results  <manifest.json>              # print each peer/gpt-pro lens status + .res.md path
   prism-launch digest   <manifest.json> [--out <path>]  # extract peers' ## Digest blocks into one small file
-  prism-launch clean    <run-id | packet-path>       # rm -f /tmp/prism-<id>*
+  prism-launch clean    <run-id | packet-path> [--force]  # rm -f /tmp/prism-<id>* (guards live gpt-pro runs)
   prism-launch --help | --version  ·  prism-launch <subcommand> --help
 
 scaffold:  emit a ready-to-fill dispatch skeleton for the symmetric default (N of each of the
-           six models, one shared effort). Replace each "FILL" Lens/Lens-Desc, then Write it.
-           --preset <review|design|diagnosis|compare|research|decision|writing> pre-fills six
-           lenses by task type (N=1).
+           seven models; Codex xhigh + Grok Build high fixed). Replace each "FILL" Lens/Lens-Desc, then Write it.
+           --preset <review|design|diagnosis|compare|research|decision|writing> pre-fills seven
+           lenses by task type (N=1). gpt-pro lenses are opt-in — add them by hand (below).
 prepare:   validate the dispatch/config, render all launchers from templates, write a manifest;
            inject the canonical ## Constraints and ## How to answer into the shared packet if
-           absent (so you author the packet with just Full Question + Context). Pass one of --dispatch
-           (compiled to the canonical config) or --config. See the prism SKILL.md.
+           absent (so you author the packet with just Full Question + Context). For any gpt-pro
+           lens it also COMPOSES a self-contained launcher (inlines the frozen packet + every
+           reference file's contents + grounding + calibration). Pass one of --dispatch (compiled
+           to the canonical config) or --config. See the prism SKILL.md.
 parallax:  fan out every relay call as ONE backgrounded process, wait for all, write a structured
            result. Run with run_in_background: true. --only <name> retries a single failed peer.
-results:   print each parallax peer's status + .res.md path from the run's result.json.
-digest:    extract each parallax peer's "## Digest" block (lineage-tagged) into one small
-           <id>-digest.md, so synthesis at large N reads compact digests + deep-reads only
-           the .res.md it needs. Subagent + self digests are already in the conversation.
-clean:     remove every temp artifact for a run (/tmp/prism-<id>*).
+           Relay peers only — gpt-pro lenses are NOT in the parallax fan.
+results:   print each parallax peer's + gpt-pro lens's status + .res.md path. A pending gpt-pro
+           lens surfaces its run_id (from the .log) for reattach. Exits non-zero unless all are done.
+digest:    extract each parallax peer's + gpt-pro lens's "## Digest" block (lineage-tagged) into
+           one small <id>-digest.md. Subagent + self digests are already in the conversation.
+clean:     remove every temp artifact for a run (/tmp/prism-<id>*). Refuses to delete a gpt-pro
+           run whose .log shows a run_id but has no .res.md yet (possibly-live worker) unless --force.
+
+Dispatch records (line-oriented; see prism SKILL.md):
+  Type: parallax | subagent | gptpro
+  - parallax: To/Lens/Lens-Desc required, Name/Effort optional (relay peer).
+  - subagent: Lens/Lens-Desc only (Claude, Agent-tool).
+  - gptpro:   Lens/Lens-Desc required, optional Posture (deep-reasoning|research-grounded).
+              Orchestrator-direct — you fire each `gpt-pro < launcher` call prepare prints.
+  Reference: <abs-path>   # repeatable, top-level: the authoritative inlining list for gptpro
+                          # lenses; defaults to the packet's `### Reference Materials`; `none` = packet only.
 
 Env:
   PRISM_PEER_TIMEOUT  per-peer timeout in seconds (default 3600; 0 = no cap; needs coreutils timeout).
